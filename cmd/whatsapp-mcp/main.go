@@ -35,7 +35,7 @@ Commands:
   uninstall                remove it from Claude Desktop
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
   serve                    run the MCP server on stdio (your MCP client runs this)
-  logout                   unlink this device and delete the session
+  unlink [--delete-data]   unlink WhatsApp from this computer (alias: logout)
   status                   show the linked account
   version                  print the version
 
@@ -58,6 +58,8 @@ func main() {
 	dataFlag := flags.String("data", "", "data directory")
 	phone := flags.String("phone", "", "login: use a pairing code for this phone number instead of a QR code")
 	here := flags.Bool("here", false, "install: register this binary where it is instead of copying it to the per-user programs folder")
+	deleteData := flags.Bool("delete-data", false, "unlink: also delete local message history and attachments")
+	yes := flags.Bool("yes", false, "unlink/uninstall: don't ask for confirmation")
 	flags.Parse(os.Args[2:])
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -75,14 +77,8 @@ func main() {
 			printSetup(svc.DataDir())
 			return nil
 		})
-	case "logout":
-		err = withService(*dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
-			if err := svc.Unlink(ctx); err != nil {
-				return err
-			}
-			fmt.Println("Unlinked. Message history is kept in", svc.DataDir())
-			return nil
-		})
+	case "unlink", "logout":
+		err = unlink(ctx, *dataFlag, *deleteData, *yes)
 	case "status":
 		err = withService(*dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
 			for k, v := range svc.Status() {
@@ -93,7 +89,7 @@ func main() {
 	case "install":
 		err = install(*dataFlag, *here)
 	case "uninstall":
-		err = uninstall()
+		err = uninstall(ctx, *dataFlag, *yes)
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -239,7 +235,7 @@ func offerLink(dataFlag string) (bool, error) {
 	return linked, err
 }
 
-func uninstall() error {
+func uninstall(ctx context.Context, dataFlag string, yes bool) error {
 	path, err := desktop.ConfigPath()
 	if err != nil {
 		return err
@@ -248,12 +244,95 @@ func uninstall() error {
 	if err != nil {
 		return err
 	}
-	if !removed {
+	if removed {
+		fmt.Println("Removed from Claude Desktop. Restart it to apply.")
+	} else {
 		fmt.Println("Not installed in Claude Desktop:", path)
+	}
+
+	if yes || confirm("Also unlink WhatsApp and delete local messages and attachments?") {
+		if err := unlink(ctx, dataFlag, true, true); err != nil && !errors.Is(err, wa.ErrNotLinked) {
+			return err
+		}
+	}
+	if bin, err := desktop.BinaryPath(); err == nil {
+		if _, err := os.Stat(bin); err == nil {
+			fmt.Println("To remove the program itself, delete:", bin)
+		}
+	}
+	return nil
+}
+
+// unlink removes this computer from the WhatsApp account, optionally deleting
+// local history too.
+func unlink(ctx context.Context, dataFlag string, deleteData, yes bool) error {
+	dir, err := config.DataDir(dataFlag)
+	if err != nil {
+		return err
+	}
+	err = withService(dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+		if !svc.LoggedIn() {
+			return wa.ErrNotLinked
+		}
+		account := "+" + svc.Client.Store.ID.User
+		question := "Unlink WhatsApp " + account + " from this computer?"
+		if deleteData {
+			question = "Unlink WhatsApp " + account + " and delete local messages and attachments?"
+		}
+		if !yes && !confirm(question) {
+			return errCancelled
+		}
+		remote, err := svc.Unlink(ctx)
+		if err != nil {
+			return err
+		}
+		if remote {
+			fmt.Println("Unlinked", account+". This computer is no longer listed under Linked devices.")
+		} else {
+			fmt.Println("Removed the local session for", account+", but WhatsApp couldn't be reached.")
+			fmt.Println("On your phone, remove it under WhatsApp > Settings > Linked devices if it's still listed.")
+		}
+		return nil
+	})
+	if errors.Is(err, errCancelled) {
+		fmt.Println("Cancelled.")
 		return nil
 	}
-	fmt.Println("Removed from Claude Desktop. Restart it to apply. Your WhatsApp data is kept in", config.DefaultDataDir())
+	switch {
+	case errors.Is(err, wa.ErrNotLinked):
+		if !deleteData {
+			return err
+		}
+		// Nothing to unlink, but local data may remain; still confirm before deleting
+		if !yes && !confirm("No WhatsApp account is linked. Delete local messages and attachments?") {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	case err != nil:
+		return err
+	}
+	if deleteData {
+		if err := wa.DeleteLocalData(dir); err != nil {
+			return fmt.Errorf("deleting local data: %w (quit Claude Desktop if it's running, then try again)", err)
+		}
+		fmt.Println("Deleted local messages and attachments in", dir)
+	} else {
+		fmt.Println("Message history is kept in", dir)
+	}
 	return nil
+}
+
+var errCancelled = errors.New("cancelled")
+
+// confirm asks a yes/no question; without a terminal it answers no.
+func confirm(question string) bool {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return false
+	}
+	fmt.Print(question + " [y/N] ")
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes"
 }
 
 // launchedByDoubleClick reports a no-argument start from Explorer: Windows

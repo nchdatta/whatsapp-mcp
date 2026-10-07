@@ -101,16 +101,54 @@ func (s *Service) waitForQuiet(ctx context.Context, activity <-chan struct{}) er
 	}
 }
 
-// Unlink logs this device out of WhatsApp and deletes the local session.
-func (s *Service) Unlink(ctx context.Context) error {
+// ErrNotLinked is returned by Unlink when there is nothing to unlink.
+var ErrNotLinked = errors.New("no WhatsApp account is linked")
+
+// Unlink removes this device from the WhatsApp account (it disappears from
+// Linked devices on the phone) and deletes the local session. It reports
+// whether WhatsApp confirmed the removal; when offline, only the local
+// session is deleted and the phone may still list the device.
+func (s *Service) Unlink(ctx context.Context) (remote bool, err error) {
 	if !s.LoggedIn() {
-		return errors.New("no account is linked")
+		return false, ErrNotLinked
 	}
-	if err := s.Client.Connect(); err == nil {
-		if err := s.Client.Logout(ctx); err == nil {
-			return nil
+	if !s.Client.IsConnected() {
+		if err := s.Client.Connect(); err != nil {
+			s.log.Warn().Err(err).Msg("Offline; removing the session locally only")
 		}
 	}
-	// Offline or rejected: forget the session locally anyway
-	return s.Client.Store.Delete(ctx)
+	if s.Client.IsConnected() {
+		if err := s.Client.Logout(ctx); err == nil {
+			s.forget()
+			return true, nil
+		} else {
+			s.log.Warn().Err(err).Msg("WhatsApp rejected the logout; removing the session locally")
+		}
+	}
+	s.Client.Disconnect()
+	if err := s.Client.Store.Delete(ctx); err != nil {
+		return false, err
+	}
+	s.forget()
+	return false, nil
+}
+
+// forget drops cached names from the previous account.
+func (s *Service) forget() {
+	s.names.Clear()
+	s.groups.Clear()
+	s.pair.set(func(p *Pairing) { *p = Pairing{Phase: PairIdle} })
+}
+
+// DeleteLocalData removes the session, message history and saved attachments from
+// the data directory. Call it only after Close.
+func DeleteLocalData(dataDir string) error {
+	var errs []error
+	for _, name := range []string{"history.db", "history.db-wal", "history.db-shm",
+		"session.db", "session.db-wal", "session.db-shm", "link-qr.png", "media"} {
+		if err := os.RemoveAll(filepath.Join(dataDir, name)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

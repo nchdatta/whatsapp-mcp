@@ -66,6 +66,10 @@ type (
 		Phone string `json:"phone,omitempty" jsonschema:"Link with an 8-character pairing code for this phone number (with country code) instead of a QR code"`
 	}
 
+	unlinkArgs struct {
+		Confirm bool `json:"confirm,omitempty" jsonschema:"Must be true. Only set it after the user explicitly confirmed they want to unlink"`
+	}
+
 	attachmentArgs struct {
 		Chat      string `json:"chat,omitempty" jsonschema:"Chat JID of the message (optional, speeds up lookup)"`
 		MessageID string `json:"message_id" jsonschema:"ID of the message with the attachment"`
@@ -75,6 +79,7 @@ type (
 func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "whatsapp_status", Description: "Show whether a WhatsApp account is linked and connected."}, t.status)
 	mcp.AddTool(s, &mcp.Tool{Name: "link_whatsapp", Description: "Link a WhatsApp account when none is linked. Returns a QR code image to scan in WhatsApp (Linked devices > Link a device), or a pairing code when phone is given. Codes expire in about 20 seconds; call again for a fresh one, then whatsapp_status to confirm."}, t.link)
+	mcp.AddTool(s, &mcp.Tool{Name: "unlink_whatsapp", Description: "Unlink the WhatsApp account from this computer (removes it from Linked devices on the phone). Local message history is kept. Ask the user to confirm first."}, t.unlink)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with a preview of the last message."}, t.listChats)
 	mcp.AddTool(s, &mcp.Tool{Name: "read_chat", Description: "Read the latest messages of one chat, oldest first."}, t.readChat)
 	mcp.AddTool(s, &mcp.Tool{Name: "search_messages", Description: "Search messages across all chats by text, chat, sender, date range or attachments. Newest first."}, t.search)
@@ -231,4 +236,21 @@ func (t *tools) link(ctx context.Context, _ *mcp.CallToolRequest, a linkArgs) (*
 		return res, nil, nil
 	}
 	return fail(fmt.Errorf("linking is in state %q; try again", p.Phase))
+}
+
+func (t *tools) unlink(ctx context.Context, _ *mcp.CallToolRequest, a unlinkArgs) (*mcp.CallToolResult, any, error) {
+	if !t.svc.LoggedIn() {
+		return ok("No WhatsApp account is linked.")
+	}
+	if !a.Confirm {
+		return fail(fmt.Errorf("unlinking +%s needs the user's confirmation; ask them, then call again with confirm: true", t.svc.Client.Store.ID.User))
+	}
+	remote, err := t.svc.Unlink(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	if !remote {
+		return ok("Removed the local session, but WhatsApp couldn't be reached. Tell the user to remove this computer under WhatsApp > Settings > Linked devices if it's still listed. Local message history is kept.")
+	}
+	return ok("Unlinked. This computer is no longer a linked device. Local message history is kept; link_whatsapp links an account again.")
 }
