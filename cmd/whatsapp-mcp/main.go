@@ -167,6 +167,11 @@ func install(dataFlag string, here bool) error {
 			return err
 		}
 		fmt.Println("Installed binary:", exe)
+		if added, err := desktop.AddToUserPath(filepath.Dir(exe)); err != nil {
+			fmt.Println("Couldn't add it to PATH:", err)
+		} else if added {
+			fmt.Println("Added to your PATH. Open a new terminal to run `whatsapp-mcp` directly.")
+		}
 	}
 	path, err := desktop.ConfigPath()
 	if err != nil {
@@ -256,6 +261,7 @@ func uninstall(ctx context.Context, dataFlag string, yes bool) error {
 		}
 	}
 	if bin, err := desktop.BinaryPath(); err == nil {
+		desktop.RemoveFromUserPath(filepath.Dir(bin))
 		if _, err := os.Stat(bin); err == nil {
 			fmt.Println("To remove the program itself, delete:", bin)
 		}

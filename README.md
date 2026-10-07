@@ -165,6 +165,7 @@ The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask 
 
 ## Troubleshooting
 
+- **`'whatsapp-mcp' is not recognized`** (Windows): open a *new* terminal after installing; already-open ones keep their old PATH. Or run it by its full path: `%LOCALAPPDATA%Programswhatsapp-mcpwhatsapp-mcp.exe`.
 - **Unlink or switch accounts**: run `whatsapp-mcp unlink` (add `--delete-data` to also remove local messages), or ask Claude to "unlink my WhatsApp". Then link again. You can also remove the device on your phone under **Linked devices**; whatsapp-mcp notices and shows as not linked.
 - **`whatsapp` doesn't appear in Claude Desktop**: make sure Claude Desktop fully quit before restarting. If the entry is missing from the config, quit Claude Desktop and run `whatsapp-mcp install` again. Details are in Claude Desktop's MCP logs (**Settings > Developer > Open Logs Folder**).
 - **"no WhatsApp account is linked"**: ask Claude to link it, or run `whatsapp-mcp login`.
