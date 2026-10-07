@@ -52,7 +52,7 @@ type (
 
 	sendTextArgs struct {
 		To   string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or exact chat title"`
-		Text string `json:"text" jsonschema:"Message text. Write @<phone number> to mention someone in a group"`
+		Text string `json:"text" jsonschema:"Message text. Write @<phone number>, or the [tag: @...] value from wait_for_messages, to mention someone in a group"`
 	}
 
 	sendFileArgs struct {

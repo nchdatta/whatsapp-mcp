@@ -13,6 +13,9 @@ import (
 type groupMeta struct {
 	name    string
 	lidMode bool // members are addressed by LID rather than phone number
+	// members maps both the phone number and the LID user part of every
+	// participant to the JID to mention them by
+	members map[string]types.JID
 	fetched time.Time
 }
 
@@ -33,7 +36,15 @@ func (s *Service) group(ctx context.Context, jid types.JID) *groupMeta {
 		s.log.Debug().Err(err).Str("group", jid.String()).Msg("Group info unavailable")
 		return nil
 	}
-	g := &groupMeta{name: info.Name, lidMode: info.AddressingMode == types.AddressingModeLID, fetched: time.Now()}
+	g := &groupMeta{name: info.Name, lidMode: info.AddressingMode == types.AddressingModeLID,
+		members: map[string]types.JID{}, fetched: time.Now()}
+	for _, p := range info.Participants {
+		for _, id := range []types.JID{p.JID, p.PhoneNumber, p.LID} {
+			if !id.IsEmpty() {
+				g.members[id.User] = p.JID.ToNonAD()
+			}
+		}
+	}
 	s.groups.Store(jid.String(), g)
 	return g
 }

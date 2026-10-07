@@ -74,7 +74,7 @@ func (t *tools) waitForMessages(ctx context.Context, _ *mcp.CallToolRequest, a w
 }
 
 // watchLine formats one message as
-// "Name (+phone) in Group - 10:21 AM: [image: C:\...\file.jpg] caption  [chat: JID] [id: ID]".
+// "Name (+phone) in Group - 10:21 AM: [image: C:\...\file.jpg] caption  [chat: JID] [id: ID] [tag: @user]".
 func (t *tools) watchLine(ctx context.Context, m store.Message) string {
 	body := m.Body
 	if m.MediaKind != "" {
@@ -92,9 +92,10 @@ func (t *tools) watchLine(ctx context.Context, m store.Message) string {
 		}
 		group = " in " + title
 	}
-	return fmt.Sprintf("%s%s - %s: %s  [chat: %s] [id: %s]",
+	mention, _, _ := strings.Cut(m.SenderJID, "@")
+	return fmt.Sprintf("%s%s - %s: %s  [chat: %s] [id: %s] [tag: @%s]",
 		t.svc.DisplayName(ctx, m.SenderJID, m.SenderName), group,
-		m.SentAt.Local().Format("3:04 PM"), strings.ReplaceAll(body, "\n", "\n    "), m.ChatJID, m.ID)
+		m.SentAt.Local().Format("3:04 PM"), strings.ReplaceAll(body, "\n", "\n    "), m.ChatJID, m.ID, mention)
 }
 
 // savedFile waits briefly for an incoming attachment to finish auto-saving.

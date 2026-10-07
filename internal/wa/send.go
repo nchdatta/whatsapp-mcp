@@ -65,31 +65,49 @@ func (s *Service) Recipient(ctx context.Context, to string) (types.JID, error) {
 
 var mentionToken = regexp.MustCompile(`@\+?(\d{7,15})\b`)
 
-// withMentions turns "@<number>" in text into real mentions. Groups that
-// address members by LID need the token rewritten to the member's LID.
+// withMentions turns "@<number>" in text into real mentions. The number may
+// be a phone number or a hidden LID; in groups it's matched against the
+// member list and rewritten to the ID the group addresses that member by.
 func (s *Service) withMentions(ctx context.Context, chat types.JID, text string) (string, []string) {
 	if !mentionToken.MatchString(text) {
 		return text, nil
 	}
-	lidMode := false
+	var g *groupMeta
 	if chat.Server == types.GroupServer {
-		if g := s.group(ctx, chat); g != nil {
-			lidMode = g.lidMode
-		}
+		g = s.group(ctx, chat)
 	}
 	var jids []string
 	out := mentionToken.ReplaceAllStringFunc(text, func(tok string) string {
 		num := mentionToken.FindStringSubmatch(tok)[1]
-		target := types.NewJID(num, types.DefaultUserServer)
-		if lidMode {
-			if lid, err := s.Client.Store.LIDs.GetLIDForPN(ctx, target); err == nil && !lid.IsEmpty() {
-				target = lid
-			}
-		}
+		target := s.mentionTarget(ctx, g, num)
 		jids = append(jids, target.String())
 		return "@" + target.User
 	})
 	return out, jids
+}
+
+// mentionTarget resolves a mentioned number (phone or LID) to a JID.
+func (s *Service) mentionTarget(ctx context.Context, g *groupMeta, num string) types.JID {
+	if g != nil {
+		if j, ok := g.members[num]; ok {
+			return j
+		}
+	}
+	pn := types.NewJID(num, types.DefaultUserServer)
+	lid := types.NewJID(num, types.HiddenUserServer)
+	// A known LID: use it directly, or its phone number in phone-addressed groups
+	if p, err := s.Client.Store.LIDs.GetPNForLID(ctx, lid); err == nil && !p.IsEmpty() {
+		if g != nil && g.lidMode {
+			return lid
+		}
+		return p
+	}
+	if g != nil && g.lidMode {
+		if l, err := s.Client.Store.LIDs.GetLIDForPN(ctx, pn); err == nil && !l.IsEmpty() {
+			return l
+		}
+	}
+	return pn
 }
 
 // SendText sends a text message and records it in the local history.
