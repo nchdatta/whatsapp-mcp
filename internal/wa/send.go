@@ -1,0 +1,236 @@
+package wa
+
+import (
+	"context"
+	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/nchdatta/whatsapp-mcp/internal/audio"
+	"github.com/nchdatta/whatsapp-mcp/internal/store"
+)
+
+var nonDigits = regexp.MustCompile(`[^\d]`)
+
+// Recipient resolves "to" into a chat JID. It accepts a JID, a phone number in
+// any common format, or the exact title of a known chat.
+func (s *Service) Recipient(ctx context.Context, to string) (types.JID, error) {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return types.JID{}, fmt.Errorf("recipient is empty")
+	}
+	if strings.Contains(to, "@") {
+		return types.ParseJID(to)
+	}
+
+	if digits := nonDigits.ReplaceAllString(to, ""); len(digits) >= 7 && len(digits) >= len(strings.TrimSpace(to))/2 {
+		res, err := s.Client.IsOnWhatsApp(ctx, []string{"+" + digits})
+		if err != nil {
+			return types.JID{}, fmt.Errorf("checking %s on WhatsApp: %w", to, err)
+		}
+		if len(res) == 0 || !res[0].IsIn {
+			return types.JID{}, fmt.Errorf("+%s is not on WhatsApp", digits)
+		}
+		return res[0].JID, nil
+	}
+
+	chats, err := s.History.Chats(ctx, to, nil, 20, 0)
+	if err != nil {
+		return types.JID{}, err
+	}
+	var matches []store.Chat
+	for _, c := range chats {
+		if strings.EqualFold(c.Title, to) {
+			matches = append(matches, c)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return types.ParseJID(matches[0].JID)
+	case 0:
+		return types.JID{}, fmt.Errorf("no chat named %q; use a phone number or JID (list_chats shows them)", to)
+	default:
+		return types.JID{}, fmt.Errorf("%d chats are named %q; use the JID instead", len(matches), to)
+	}
+}
+
+var mentionToken = regexp.MustCompile(`@\+?(\d{7,15})\b`)
+
+// withMentions turns "@<number>" in text into real mentions. Groups that
+// address members by LID need the token rewritten to the member's LID.
+func (s *Service) withMentions(ctx context.Context, chat types.JID, text string) (string, []string) {
+	if !mentionToken.MatchString(text) {
+		return text, nil
+	}
+	lidMode := false
+	if chat.Server == types.GroupServer {
+		if g := s.group(ctx, chat); g != nil {
+			lidMode = g.lidMode
+		}
+	}
+	var jids []string
+	out := mentionToken.ReplaceAllStringFunc(text, func(tok string) string {
+		num := mentionToken.FindStringSubmatch(tok)[1]
+		target := types.NewJID(num, types.DefaultUserServer)
+		if lidMode {
+			if lid, err := s.Client.Store.LIDs.GetLIDForPN(ctx, target); err == nil && !lid.IsEmpty() {
+				target = lid
+			}
+		}
+		jids = append(jids, target.String())
+		return "@" + target.User
+	})
+	return out, jids
+}
+
+// SendText sends a text message and records it in the local history.
+func (s *Service) SendText(ctx context.Context, to, text string) (string, error) {
+	if err := s.Online(ctx); err != nil {
+		return "", err
+	}
+	chat, err := s.Recipient(ctx, to)
+	if err != nil {
+		return "", err
+	}
+	body, mentions := s.withMentions(ctx, chat, text)
+	msg := &waE2E.Message{}
+	if len(mentions) > 0 {
+		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+			Text:        proto.String(body),
+			ContextInfo: &waE2E.ContextInfo{MentionedJID: mentions},
+		}
+	} else {
+		msg.Conversation = proto.String(body)
+	}
+	return s.send(ctx, chat, msg, &store.Message{Body: body})
+}
+
+// SendFile uploads and sends a file. Images, videos and audio are sent as
+// such; anything else as a document. voice turns audio into a voice note,
+// converting it to Opus with ffmpeg if needed.
+func (s *Service) SendFile(ctx context.Context, to, path, caption string, voice bool) (string, error) {
+	if err := s.Online(ctx); err != nil {
+		return "", err
+	}
+	chat, err := s.Recipient(ctx, to)
+	if err != nil {
+		return "", err
+	}
+
+	if voice && !audio.IsOpus(path) {
+		converted, cleanup, err := audio.ToOpus(ctx, path)
+		if err != nil {
+			return "", err
+		}
+		defer cleanup()
+		path = converted
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	name := filepath.Base(path)
+
+	kind, mediaType := "document", whatsmeow.MediaDocument
+	switch {
+	case voice:
+		kind, mediaType, mimeType = "voice", whatsmeow.MediaAudio, "audio/ogg; codecs=opus"
+	case strings.HasPrefix(mimeType, "image/") && mimeType != "image/svg+xml":
+		kind, mediaType = "image", whatsmeow.MediaImage
+	case strings.HasPrefix(mimeType, "video/"):
+		kind, mediaType = "video", whatsmeow.MediaVideo
+	case strings.HasPrefix(mimeType, "audio/"):
+		kind, mediaType = "audio", whatsmeow.MediaAudio
+	}
+
+	up, err := s.Client.Upload(ctx, data, mediaType)
+	if err != nil {
+		return "", fmt.Errorf("upload: %w", err)
+	}
+	size := uint64(len(data))
+	msg := &waE2E.Message{}
+	switch kind {
+	case "image":
+		msg.ImageMessage = &waE2E.ImageMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256, FileLength: &size,
+			Mimetype: proto.String(mimeType), Caption: optional(caption),
+		}
+	case "video":
+		msg.VideoMessage = &waE2E.VideoMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256, FileLength: &size,
+			Mimetype: proto.String(mimeType), Caption: optional(caption),
+		}
+	case "audio", "voice":
+		am := &waE2E.AudioMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256, FileLength: &size,
+			Mimetype: proto.String(mimeType),
+		}
+		if voice {
+			info, err := audio.Inspect(data)
+			if err != nil {
+				return "", fmt.Errorf("reading voice note: %w", err)
+			}
+			am.PTT = proto.Bool(true)
+			am.Seconds = proto.Uint32(uint32(info.Duration.Seconds() + 0.5))
+			am.Waveform = info.Waveform
+		}
+		msg.AudioMessage = am
+	default:
+		msg.DocumentMessage = &waE2E.DocumentMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256, FileLength: &size,
+			Mimetype: proto.String(mimeType), FileName: proto.String(name), Title: proto.String(name),
+			Caption: optional(caption),
+		}
+	}
+
+	// Voice notes from temp files have no meaningful local name
+	local, _ := filepath.Abs(path)
+	if voice {
+		local = ""
+	}
+	return s.send(ctx, chat, msg, &store.Message{
+		Body: caption, MediaKind: kind, MediaMime: mimeType, MediaName: name, MediaSize: int64(size), MediaFile: local,
+	})
+}
+
+func (s *Service) send(ctx context.Context, chat types.JID, msg *waE2E.Message, record *store.Message) (string, error) {
+	resp, err := s.Client.SendMessage(ctx, chat, msg)
+	if err != nil {
+		return "", fmt.Errorf("send: %w", err)
+	}
+	// WhatsApp doesn't echo our own sends back, so record them here
+	record.ChatJID, record.ID, record.FromMe, record.SentAt = chat.String(), resp.ID, true, resp.Timestamp
+	if s.Client.Store.ID != nil {
+		record.SenderJID = s.Client.Store.ID.ToNonAD().String()
+	}
+	s.History.PutChat(ctx, chat.String(), "", chat.Server == types.GroupServer, resp.Timestamp)
+	if err := s.History.PutMessage(ctx, record); err != nil {
+		s.log.Warn().Err(err).Msg("Recording sent message failed")
+	}
+	return resp.ID, nil
+}
+
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}

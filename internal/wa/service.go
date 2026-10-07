@@ -1,0 +1,114 @@
+// Package wa wraps the whatsmeow client: it keeps the local history in sync
+// and exposes the operations the MCP tools need.
+package wa
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+	waLog "go.mau.fi/whatsmeow/util/log"
+
+	"github.com/nchdatta/whatsapp-mcp/internal/store"
+)
+
+// Service owns the WhatsApp connection and the local history.
+type Service struct {
+	Client  *whatsmeow.Client
+	History *store.Store
+
+	dataDir   string
+	mediaDir  string
+	log       zerolog.Logger
+	container *sqlstore.Container
+
+	names  sync.Map // user JID string -> display name
+	groups sync.Map // group JID string -> *groupMeta
+}
+
+// AutoSaveLimit is the largest incoming attachment saved automatically.
+const AutoSaveLimit = 100 << 20
+
+// Open loads the session and history from dataDir. It does not connect.
+func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, error) {
+	container, err := sqlstore.New(ctx, "sqlite", store.DSN(filepath.Join(dataDir, "session.db")), waLog.Zerolog(log.With().Str("module", "session").Logger()))
+	if err != nil {
+		return nil, fmt.Errorf("open session: %w", err)
+	}
+	device, err := container.GetFirstDevice(ctx)
+	if err != nil {
+		container.Close()
+		return nil, fmt.Errorf("load device: %w", err)
+	}
+	history, err := store.Open(ctx, dataDir)
+	if err != nil {
+		container.Close()
+		return nil, fmt.Errorf("open history: %w", err)
+	}
+
+	s := &Service{
+		Client:    whatsmeow.NewClient(device, waLog.Zerolog(log.With().Str("module", "whatsapp").Logger())),
+		History:   history,
+		dataDir:   dataDir,
+		mediaDir:  filepath.Join(dataDir, "media"),
+		log:       log,
+		container: container,
+	}
+	s.Client.AddEventHandler(s.onEvent)
+
+	return s, nil
+}
+
+func (s *Service) Close() {
+	s.Client.Disconnect()
+	s.History.Close()
+	s.container.Close()
+}
+
+func (s *Service) DataDir() string { return s.dataDir }
+
+// LoggedIn reports whether a WhatsApp account is linked.
+func (s *Service) LoggedIn() bool { return s.Client.Store.ID != nil }
+
+var ErrNotLoggedIn = errors.New("no WhatsApp account is linked: run `whatsapp-mcp login` in a terminal, then restart the MCP client")
+
+// Online waits briefly for the connection, for operations that need the network.
+func (s *Service) Online(ctx context.Context) error {
+	if !s.LoggedIn() {
+		return ErrNotLoggedIn
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for !s.Client.IsLoggedIn() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("not connected to WhatsApp yet; details in %s", filepath.Join(s.dataDir, "whatsapp-mcp.log"))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+// Status summarises the connection for humans.
+func (s *Service) Status() map[string]any {
+	st := map[string]any{
+		"linked":    s.LoggedIn(),
+		"connected": s.Client.IsLoggedIn(),
+		"data_dir":  s.dataDir,
+	}
+	if id := s.Client.Store.ID; id != nil {
+		st["account"] = "+" + id.User
+		if name := s.Client.Store.PushName; name != "" {
+			st["name"] = name
+		}
+	}
+	return st
+}

@@ -1,0 +1,16 @@
+# Build output (root-anchored so cmd/whatsapp-mcp/ is not ignored)
+/whatsapp-mcp
+/whatsapp-mcp.exe
+/dist/
+
+# Local data: session keys and message history must never be committed
+*.db
+*.db-wal
+*.db-shm
+*.log
+/store/
+/media/
+
+# Tooling
+__pycache__/
+claude_desktop_config.json
