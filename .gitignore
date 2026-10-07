@@ -12,7 +12,6 @@
 /media/
 
 # Tooling
-__pycache__/
 claude_desktop_config.json
 /bin/
 link-qr.png

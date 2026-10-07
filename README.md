@@ -169,14 +169,6 @@ It replies, then calls `wait_for_messages` again with the returned cursor. It ke
 
 > **Use with care:** automated replies can get an account banned, and anyone who messages you can try to give Claude instructions. Consider limiting it to certain chats or leaving groups out (`skip_groups`).
 
-### Watching messages from a script
-
-[`scripts/wa_watch.py`](scripts/wa_watch.py) prints each incoming message, including the saved attachment path, while `serve` is running. It uses only the Python standard library:
-
-```sh
-python scripts/wa_watch.py
-```
-
 `history.db` is plain SQLite. `message.seq` increases with every new message, so it is easy to tail from your own tools too.
 
 ## Project layout
@@ -189,7 +181,7 @@ internal/store/      SQLite schema and queries
 internal/wa/         WhatsApp connection: sync, names, sending, attachments, linking
 internal/mcpserver/  MCP tool definitions
 internal/audio/      voice notes: ffmpeg conversion, duration and waveform
-scripts/             install.ps1 / install.sh (release installers), setup.ps1 / setup.sh (from source), wa_watch.py
+scripts/             install.ps1 / install.sh (release installers), setup.ps1 / setup.sh (from source)
 ```
 
 ## Build
