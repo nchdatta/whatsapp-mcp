@@ -102,7 +102,7 @@ func (t *tools) watchLine(ctx context.Context, m store.Message) string {
 func (t *tools) savedFile(ctx context.Context, m store.Message) string {
 	for i := 0; i < 15; i++ {
 		if cur, err := t.svc.History.Message(ctx, m.ChatJID, m.ID); err == nil && cur.MediaFile != "" {
-			return cur.MediaFile
+			return t.svc.ViewSaved(cur.MediaFile)
 		}
 		select {
 		case <-ctx.Done():

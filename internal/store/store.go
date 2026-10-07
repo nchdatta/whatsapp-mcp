@@ -1,7 +1,7 @@
 // Package store persists chats and messages in a local SQLite database.
 //
-// Times are stored as unix seconds. Every message gets a monotonically
-// increasing seq, which external tools can use to tail new messages.
+// The database is encrypted at rest. Times are stored as unix seconds. Every
+// message gets a monotonically increasing seq, used to tail new messages.
 package store
 
 import (
@@ -13,8 +13,12 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // registers the "sqlite" driver
+	_ "github.com/ncruces/go-sqlite3/driver"       // registers the "sqlite3" driver
+	_ "github.com/ncruces/go-sqlite3/vfs/adiantum" // encryption at rest
 )
+
+// Driver is the database/sql driver name used for all databases.
+const Driver = "sqlite3"
 
 // FileName is the history database inside the data directory.
 const FileName = "history.db"
@@ -49,20 +53,20 @@ CREATE INDEX IF NOT EXISTS message_by_chat ON message (chat_jid, sent_at);
 CREATE INDEX IF NOT EXISTS message_by_time ON message (sent_at);
 `
 
-// DSN returns a modernc.org/sqlite connection string with WAL and a busy
-// timeout, so other processes can read while whatsapp-mcp writes.
-func DSN(path string) string {
-	return "file:" + filepath.ToSlash(path) +
-		"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+// DSN returns a connection string for an encrypted database (keyHex: 64 hex
+// digits), with WAL and a busy timeout so several connections can share it.
+func DSN(path, keyHex string) string {
+	return "file:" + filepath.ToSlash(path) + "?vfs=adiantum&hexkey=" + keyHex +
+		"&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=temp_store(memory)"
 }
 
 type Store struct {
 	db *sql.DB
 }
 
-// Open opens (creating if needed) the history database in dataDir.
-func Open(ctx context.Context, dataDir string) (*Store, error) {
-	db, err := sql.Open("sqlite", DSN(filepath.Join(dataDir, FileName)))
+// Open opens (creating if needed) the encrypted history database in dataDir.
+func Open(ctx context.Context, dataDir, keyHex string) (*Store, error) {
+	db, err := sql.Open(Driver, DSN(filepath.Join(dataDir, FileName), keyHex))
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +153,12 @@ func (s *Store) PutMessage(ctx context.Context, m *Message) error {
 			media_file  = CASE WHEN message.media_file <> '' THEN message.media_file ELSE excluded.media_file END`,
 		m.ChatJID, m.ID, m.SenderJID, m.SenderName, m.FromMe, unix(m.SentAt), m.Body,
 		m.MediaKind, m.MediaMime, m.MediaName, m.MediaSize, m.MediaRef, m.MediaFile)
+	return err
+}
+
+// ReplaceMediaFile points every message that uses oldPath at newPath.
+func (s *Store) ReplaceMediaFile(ctx context.Context, oldPath, newPath string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE message SET media_file = ? WHERE media_file = ?`, newPath, oldPath)
 	return err
 }
 

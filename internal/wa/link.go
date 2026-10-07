@@ -13,6 +13,8 @@ import (
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
+
+	"github.com/nchdatta/whatsapp-mcp/internal/secret"
 )
 
 // Link pairs this device with a WhatsApp account, showing a QR code on out
@@ -145,10 +147,14 @@ func (s *Service) forget() {
 func DeleteLocalData(dataDir string) error {
 	var errs []error
 	for _, name := range []string{"history.db", "history.db-wal", "history.db-shm",
-		"session.db", "session.db-wal", "session.db-shm", "link-qr.png", "media"} {
+		"session.db", "session.db-wal", "session.db-shm", "link-qr.png", "http-token", "media"} {
 		if err := os.RemoveAll(filepath.Join(dataDir, name)); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if len(errs) == 0 {
+		// Only once everything it protects is gone
+		errs = append(errs, secret.Delete(dataDir))
 	}
 	return errors.Join(errs...)
 }

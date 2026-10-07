@@ -88,7 +88,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "wait_for_messages", Description: "Wait for new incoming messages (checks every 3 seconds) and return them with their chat JIDs. Returns a cursor; call again with it to keep watching, e.g. to act as the user's assistant and reply as messages arrive."}, t.waitForMessages)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_text", Description: "Send a text message. Confirm the recipient and text with the user first, unless they asked you to reply to messages automatically."}, t.sendText)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_file", Description: "Send a local file: image, video, audio, voice note or any document. Confirm with the user first."}, t.sendFile)
-	mcp.AddTool(s, &mcp.Tool{Name: "get_attachment", Description: "Download a message's attachment and return its local path. Images are also returned for you to view."}, t.attachment)
+	mcp.AddTool(s, &mcp.Tool{Name: "get_attachment", Description: "Download a message's attachment and return the path of a readable copy (attachments are stored encrypted). Images are also returned for you to view."}, t.attachment)
 }
 
 func (t *tools) status(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
@@ -197,13 +197,13 @@ func (t *tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, a attach
 	} else if jid, err := t.svc.ResolveChat(ctx, chat); err == nil {
 		chat = jid
 	}
-	path, err := t.svc.SaveMedia(ctx, chat, a.MessageID)
+	path, err := t.svc.ViewMedia(ctx, chat, a.MessageID)
 	if err != nil {
 		return fail(err)
 	}
-	res := text("Saved to " + path)
+	res := text("Readable copy (removed when whatsapp-mcp exits): " + path)
 	if mt := imageMIME(path); mt != "" {
-		if data, err := os.ReadFile(path); err == nil && len(data) <= inlineImageLimit {
+		if data, err := t.svc.ReadMedia(path); err == nil && len(data) <= inlineImageLimit {
 			res.Content = append(res.Content, &mcp.ImageContent{Data: data, MIMEType: mt})
 		}
 	}

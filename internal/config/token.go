@@ -7,20 +7,35 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nchdatta/whatsapp-mcp/internal/secret"
 )
 
 const tokenFile = "http-token"
 
 // HTTPToken returns the secret that protects `serve --http`, creating it on
-// first use. rotate replaces it, invalidating old connector URLs.
+// first use. It's stored encrypted. rotate replaces it, invalidating old
+// connector URLs.
 func HTTPToken(dataDir string, rotate bool) (string, error) {
+	keys, err := secret.Load(dataDir)
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Join(dataDir, tokenFile)
 	if !rotate {
-		b, err := os.ReadFile(path)
-		if err == nil && len(strings.TrimSpace(string(b))) >= 32 {
-			return strings.TrimSpace(string(b)), nil
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		data, err := os.ReadFile(path)
+		switch {
+		case err == nil && secret.IsSealed(data):
+			plain, err := keys.Open(data)
+			if err != nil {
+				return "", err
+			}
+			return string(plain), nil
+		case err == nil && len(strings.TrimSpace(string(data))) >= 32:
+			// Written by a version without encryption: keep it, encrypted
+			token := strings.TrimSpace(string(data))
+			return token, keys.WriteFile(path, []byte(token))
+		case err != nil && !errors.Is(err, os.ErrNotExist):
 			return "", err
 		}
 	}
@@ -29,8 +44,5 @@ func HTTPToken(dataDir string, rotate bool) (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
-	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
-		return "", err
-	}
-	return token, nil
+	return token, keys.WriteFile(path, []byte(token))
 }

@@ -4,7 +4,7 @@
 
 Use your WhatsApp from **Claude Desktop**. Read and search your chats, look at photos people send you, and send messages, files and voice notes. It works with any other [MCP](https://modelcontextprotocol.io) client too.
 
-It's one self-contained binary. Your messages stay on your computer, in a local SQLite database, and only reach Claude when it calls a tool.
+It's one self-contained binary. Your messages stay on your computer, encrypted, and only reach Claude when it calls a tool.
 
 > **Use at your own risk.** This links as a WhatsApp Web device through the unofficial [whatsmeow](https://github.com/tulir/whatsmeow) library. Automated or bulk messaging can get an account banned.
 >
@@ -142,13 +142,30 @@ All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
 | macOS | `~/Library/Application Support/whatsapp-mcp` |
 | Linux | `~/.config/whatsapp-mcp` |
 
-| File | Contents |
-|---|---|
-| `session.db` | Your WhatsApp device keys. **Anyone with this file can use your account.** |
-| `history.db` | Chats and messages |
-| `media/` | Saved attachments |
-| `http-token` | Secret for `serve --http`. **Anyone with it can use your WhatsApp through the HTTP server.** |
-| `whatsapp-mcp.log` | Logs. Check here first when something goes wrong |
+| File | Contents | At rest |
+|---|---|---|
+| `session.db` | Your WhatsApp device keys | Encrypted |
+| `history.db` | Chats and messages | Encrypted |
+| `media/` | Saved attachments (`*.enc`) | Encrypted |
+| `http-token` | Secret for `serve --http` | Encrypted |
+| `key` | The encryption key, itself protected by the OS (Windows and Linux; on macOS it's in the Keychain instead) | See below |
+| `whatsapp-mcp.log` | Logs: chat IDs and errors, no message text. Check here first when something goes wrong | Plain text |
+
+#### Encryption
+
+Everything above is encrypted with a random key created on first run: databases with Adiantum (through the SQLite storage layer), attachments and the token with AES-256-GCM. Data from older versions is encrypted automatically on the first start.
+
+The key is protected by the operating system:
+
+- **Windows:** encrypted with DPAPI, so only your Windows account on this PC can unlock it. A copy of the data folder is useless on another PC or account.
+- **macOS:** stored in your login Keychain.
+- **Linux:** a file readable only by you. This protects copies of the databases, but not someone who can read your whole data folder; use full-disk encryption for that.
+
+When Claude opens an attachment (`get_attachment`, or `wait_for_messages` showing a path), a readable copy is written to a temporary folder that's deleted when whatsapp-mcp exits.
+
+It doesn't protect against programs running as you while you're logged in, since they can ask the OS for the key just like whatsapp-mcp does. Full-disk encryption (BitLocker / Device encryption, FileVault) is still recommended.
+
+If the key is lost (for example a Windows profile reset), the data can't be recovered: link WhatsApp again, and recent history will sync back.
 
 ### Auto-reply assistant
 
@@ -162,14 +179,12 @@ It replies to every chat on your behalf without asking, keeps replies short, tag
 Claude calls `wait_for_messages`, which returns new messages like this:
 
 ```
-Rahim (+8801…) in Family - 10:21 AM: [image: C:\Users\…\media\…\3EB0…-photo.jpg] look!  [chat: 1203…@g.us] [id: 3EB0…]
+Rahim (+8801…) in Family - 10:21 AM: [image: C:\Users\…\Temp\whatsapp-mcp-view-…\3EB0….jpg] look!  [chat: 1203…@g.us] [id: 3EB0…] [tag: @8801…]
 ```
 
 It replies, then calls `wait_for_messages` again with the returned cursor. It keeps going for as long as the chat keeps running; when Claude stops (long conversations end at some point), say *"continue"*.
 
 > **Use with care:** automated replies can get an account banned, and anyone who messages you can try to give Claude instructions. Consider limiting it to certain chats or leaving groups out (`skip_groups`).
-
-`history.db` is plain SQLite. `message.seq` increases with every new message, so it is easy to tail from your own tools too.
 
 ## Project layout
 
@@ -180,13 +195,14 @@ internal/desktop/    Claude Desktop config (install / uninstall)
 internal/store/      SQLite schema and queries
 internal/wa/         WhatsApp connection: sync, names, sending, attachments, linking
 internal/mcpserver/  MCP tool definitions
+internal/secret/     encryption at rest: OS-protected key, file encryption
 internal/audio/      voice notes: ffmpeg conversion, duration and waveform
 scripts/             install.ps1 / install.sh (release installers), setup.ps1 / setup.sh (from source)
 ```
 
 ## Build
 
-Requires Go 1.26 or newer. No C compiler is needed: SQLite is pure Go.
+Requires Go 1.26 or newer. No C compiler is needed: SQLite, with encryption, is pure Go.
 
 ```sh
 go build -o whatsapp-mcp ./cmd/whatsapp-mcp

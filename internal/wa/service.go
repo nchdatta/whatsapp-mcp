@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
+	"github.com/nchdatta/whatsapp-mcp/internal/secret"
 	"github.com/nchdatta/whatsapp-mcp/internal/store"
 )
 
@@ -22,11 +23,15 @@ import (
 type Service struct {
 	Client  *whatsmeow.Client
 	History *store.Store
+	Keys    *secret.Keys
 
 	dataDir   string
 	mediaDir  string
 	log       zerolog.Logger
 	container *sqlstore.Container
+
+	viewMu  sync.Mutex
+	viewDir string // decrypted copies of attachments, removed on Close
 
 	names  sync.Map // user JID string -> display name
 	groups sync.Map // group JID string -> *groupMeta
@@ -37,8 +42,24 @@ type Service struct {
 const AutoSaveLimit = 100 << 20
 
 // Open loads the session and history from dataDir. It does not connect.
+// Databases and attachments from older, unencrypted versions are encrypted
+// on the way.
 func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, error) {
-	container, err := sqlstore.New(ctx, "sqlite", store.DSN(filepath.Join(dataDir, "session.db")), waLog.Zerolog(log.With().Str("module", "session").Logger()))
+	keys, err := secret.Load(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	sessionPath := filepath.Join(dataDir, "session.db")
+	for _, path := range []string{sessionPath, filepath.Join(dataDir, store.FileName)} {
+		if store.IsPlaintext(path) {
+			log.Info().Str("file", filepath.Base(path)).Msg("Encrypting database")
+			if err := store.Encrypt(ctx, path, keys.DBHex); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	container, err := sqlstore.New(ctx, store.Driver, store.DSN(sessionPath, keys.DBHex), waLog.Zerolog(log.With().Str("module", "session").Logger()))
 	if err != nil {
 		return nil, fmt.Errorf("open session: %w", err)
 	}
@@ -47,7 +68,7 @@ func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, er
 		container.Close()
 		return nil, fmt.Errorf("load device: %w", err)
 	}
-	history, err := store.Open(ctx, dataDir)
+	history, err := store.Open(ctx, dataDir, keys.DBHex)
 	if err != nil {
 		container.Close()
 		return nil, fmt.Errorf("open history: %w", err)
@@ -56,12 +77,14 @@ func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, er
 	s := &Service{
 		Client:    whatsmeow.NewClient(device, waLog.Zerolog(log.With().Str("module", "whatsapp").Logger())),
 		History:   history,
+		Keys:      keys,
 		dataDir:   dataDir,
 		mediaDir:  filepath.Join(dataDir, "media"),
 		log:       log,
 		container: container,
 	}
 	s.Client.AddEventHandler(s.onEvent)
+	go s.encryptOldMedia(context.Background())
 
 	return s, nil
 }
@@ -70,6 +93,7 @@ func (s *Service) Close() {
 	s.Client.Disconnect()
 	s.History.Close()
 	s.container.Close()
+	s.removeViewDir()
 }
 
 func (s *Service) DataDir() string { return s.dataDir }

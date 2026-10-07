@@ -8,7 +8,7 @@ import (
 
 func openTemp(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), t.TempDir())
+	s, err := Open(context.Background(), t.TempDir(), testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
