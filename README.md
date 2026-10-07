@@ -1,5 +1,7 @@
 # whatsapp-mcp
 
+[![CI](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml)
+
 Connect Claude (or any [MCP](https://modelcontextprotocol.io) client) to your WhatsApp account. Read and search your chats, look at photos people send you, and send messages, files and voice notes.
 
 It's one self-contained binary. Your messages stay on your computer, in a local SQLite database, and only reach the model when it calls a tool.
