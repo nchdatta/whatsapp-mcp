@@ -302,6 +302,19 @@ func (s *Store) Messages(ctx context.Context, f MessageFilter) ([]Message, error
 	return s.queryMessages(ctx, q, args...)
 }
 
+// LastSeq returns the highest message seq, or 0 when there are none.
+func (s *Store) LastSeq(ctx context.Context) (int64, error) {
+	var seq int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM message`).Scan(&seq)
+	return seq, err
+}
+
+// Since returns up to limit messages stored after seq, oldest first. It's
+// how watchers tail new messages.
+func (s *Store) Since(ctx context.Context, seq int64, limit int) ([]Message, error) {
+	return s.queryMessages(ctx, messageSelect+` WHERE m.seq > ? ORDER BY m.seq LIMIT ?`, seq, limit)
+}
+
 // Message returns one message.
 func (s *Store) Message(ctx context.Context, chatJID, msgID string) (Message, error) {
 	m, err := scanMessage(s.db.QueryRowContext(ctx, messageSelect+` WHERE m.chat_jid = ? AND m.msg_id = ?`, chatJID, msgID))

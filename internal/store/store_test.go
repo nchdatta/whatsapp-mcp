@@ -125,3 +125,32 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+func TestSince(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	start, err := s.LastSeq(ctx)
+	must(t, err)
+	if start != 0 {
+		t.Fatalf("empty store: LastSeq = %d", start)
+	}
+	must(t, s.PutChat(ctx, "c@s.whatsapp.net", "Bob", false, time.Now()))
+	for _, id := range []string{"a", "b", "c"} {
+		must(t, s.PutMessage(ctx, &Message{ChatJID: "c@s.whatsapp.net", ID: id, SenderJID: "c@s.whatsapp.net", SentAt: time.Now(), Body: id}))
+	}
+	all, err := s.Since(ctx, 0, 10)
+	must(t, err)
+	if len(all) != 3 || all[0].ID != "a" {
+		t.Fatalf("Since(0) = %v", all)
+	}
+	rest, err := s.Since(ctx, all[0].Seq, 10)
+	must(t, err)
+	if len(rest) != 2 || rest[0].ID != "b" {
+		t.Fatalf("Since(first) = %v", rest)
+	}
+	last, err := s.LastSeq(ctx)
+	must(t, err)
+	if last != all[2].Seq {
+		t.Fatalf("LastSeq = %d, want %d", last, all[2].Seq)
+	}
+}

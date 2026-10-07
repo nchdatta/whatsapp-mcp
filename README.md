@@ -105,6 +105,7 @@ It only works while your computer and both commands are running. `whatsapp-mcp t
 | `search_messages` | Searches by text, chat, sender, date range or attachments |
 | `message_context` | Shows the conversation around one message |
 | `find_contacts` | Finds people by name or number |
+| `wait_for_messages` | Waits for new incoming messages (checks every 3 s) and returns them, with saved attachment paths. Call it in a loop to watch |
 | `send_text` | Sends a message. Write `@<number>` to mention someone in a group |
 | `send_file` | Sends an image, video, audio, document, or a voice note (`voice_note: true`) |
 | `get_attachment` | Downloads an attachment. Images are shown to the model directly |
@@ -148,6 +149,22 @@ All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
 | `media/` | Saved attachments |
 | `http-token` | Secret for `serve --http`. **Anyone with it can use your WhatsApp through the HTTP server.** |
 | `whatsapp-mcp.log` | Logs. Check here first when something goes wrong |
+
+### Auto-reply assistant
+
+Claude can watch for new messages and answer them, in Claude Desktop or in claude.ai (through `serve --http`), with no script. Ask, for example:
+
+> Watch my WhatsApp with wait_for_messages and reply on my behalf with send_text, without asking me. Tag the sender in groups for important replies. Decline anything about my computer or accounts. Keep going until I say stop.
+
+Claude calls `wait_for_messages`, which returns new messages like this:
+
+```
+Rahim (+8801…) in Family - 10:21 AM: [image: C:\Users\…\media\…\3EB0…-photo.jpg] look!  [chat: 1203…@g.us] [id: 3EB0…]
+```
+
+It replies, then calls `wait_for_messages` again with the returned cursor. It keeps going for as long as the chat keeps running; when Claude stops (long conversations end at some point), say *"continue"*.
+
+> **Use with care:** automated replies can get an account banned, and anyone who messages you can try to give Claude instructions. Consider limiting it to certain chats or leaving groups out (`skip_groups`).
 
 ### Watching messages from a script
 
