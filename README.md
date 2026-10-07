@@ -21,7 +21,7 @@ It's one self-contained binary. Your messages stay on your computer, in a local 
 
 The installer downloads the right build for your system from the [latest release](https://github.com/nchdatta/whatsapp-mcp/releases/latest), verifies its checksum, and runs `whatsapp-mcp install`. That command:
 
-- copies the binary to a per-user folder: `%LOCALAPPDATA%\Programs\whatsapp-mcp\` on Windows, `~/.local/bin/` on macOS and Linux,
+- copies the binary to a per-user folder that's on your PATH: `%LOCALAPPDATA%\Programs\whatsapp-mcp\` on Windows (added to your user PATH automatically), `~/.local/bin/` on macOS and Linux,
 - adds it to Claude Desktop's `claude_desktop_config.json`. It finds the file for regular and Microsoft Store installs, keeps your other settings, and saves a `.bak` copy first.
 
 On Windows you can also download `whatsapp-mcp-windows-amd64.exe` (or `-arm64`) from the release and **double-click it**. Builds exist for Windows, macOS and Linux on both amd64 and arm64.
@@ -165,7 +165,7 @@ The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask 
 
 ## Troubleshooting
 
-- **`'whatsapp-mcp' is not recognized`** (Windows): open a *new* terminal after installing; already-open ones keep their old PATH. Or run it by its full path: `%LOCALAPPDATA%Programswhatsapp-mcpwhatsapp-mcp.exe`.
+- **`'whatsapp-mcp' is not recognized`** (Windows): open a *new* terminal after installing; already-open ones keep their old PATH. Or run it by its full path: `%LOCALAPPDATA%\Programs\whatsapp-mcp\whatsapp-mcp.exe`.
 - **Unlink or switch accounts**: run `whatsapp-mcp unlink` (add `--delete-data` to also remove local messages), or ask Claude to "unlink my WhatsApp". Then link again. You can also remove the device on your phone under **Linked devices**; whatsapp-mcp notices and shows as not linked.
 - **`whatsapp` doesn't appear in Claude Desktop**: make sure Claude Desktop fully quit before restarting. If the entry is missing from the config, quit Claude Desktop and run `whatsapp-mcp install` again. Details are in Claude Desktop's MCP logs (**Settings > Developer > Open Logs Folder**).
 - **"no WhatsApp account is linked"**: ask Claude to link it, or run `whatsapp-mcp login`.
