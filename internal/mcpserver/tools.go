@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/skip2/go-qrcode"
 
 	"github.com/nchdatta/whatsapp-mcp/internal/store"
+	"github.com/nchdatta/whatsapp-mcp/internal/wa"
 )
 
 type (
@@ -59,6 +62,10 @@ type (
 		VoiceNote bool   `json:"voice_note,omitempty" jsonschema:"Send audio as a voice note (converted with ffmpeg if not already Ogg Opus)"`
 	}
 
+	linkArgs struct {
+		Phone string `json:"phone,omitempty" jsonschema:"Link with an 8-character pairing code for this phone number (with country code) instead of a QR code"`
+	}
+
 	attachmentArgs struct {
 		Chat      string `json:"chat,omitempty" jsonschema:"Chat JID of the message (optional, speeds up lookup)"`
 		MessageID string `json:"message_id" jsonschema:"ID of the message with the attachment"`
@@ -67,6 +74,7 @@ type (
 
 func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "whatsapp_status", Description: "Show whether a WhatsApp account is linked and connected."}, t.status)
+	mcp.AddTool(s, &mcp.Tool{Name: "link_whatsapp", Description: "Link a WhatsApp account when none is linked. Returns a QR code image to scan in WhatsApp (Linked devices > Link a device), or a pairing code when phone is given. Codes expire in about 20 seconds; call again for a fresh one, then whatsapp_status to confirm."}, t.link)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with a preview of the last message."}, t.listChats)
 	mcp.AddTool(s, &mcp.Tool{Name: "read_chat", Description: "Read the latest messages of one chat, oldest first."}, t.readChat)
 	mcp.AddTool(s, &mcp.Tool{Name: "search_messages", Description: "Search messages across all chats by text, chat, sender, date range or attachments. Newest first."}, t.search)
@@ -194,4 +202,33 @@ func (t *tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, a attach
 		}
 	}
 	return res, nil, nil
+}
+
+func (t *tools) link(ctx context.Context, _ *mcp.CallToolRequest, a linkArgs) (*mcp.CallToolResult, any, error) {
+	if t.svc.LoggedIn() {
+		return asJSON(t.svc.Status())
+	}
+	p, err := t.svc.StartPairing(ctx, a.Phone)
+	if err != nil {
+		return fail(err)
+	}
+	switch {
+	case p.Phase == wa.PairLinked:
+		return ok("Linked. WhatsApp is connecting; recent history will sync over the next minute.")
+	case p.Code != "":
+		return ok(fmt.Sprintf("Pairing code: %s\n\nOn the phone: WhatsApp > Settings > Linked devices > Link a device > Link with phone number instead, then enter the code. Call whatsapp_status afterwards to confirm.", p.Code))
+	case p.QR != "":
+		png, err := qrcode.Encode(p.QR, qrcode.Medium, 384)
+		if err != nil {
+			return fail(err)
+		}
+		path := filepath.Join(t.svc.DataDir(), "link-qr.png")
+		if err := os.WriteFile(path, png, 0o600); err != nil {
+			return fail(err)
+		}
+		res := text("Show this QR code to the user (also saved at " + path + " if they can't see the image). On their phone: WhatsApp > Settings > Linked devices > Link a device, then scan it. It expires in about 20 seconds; call link_whatsapp again for a fresh one, and whatsapp_status to confirm once scanned.")
+		res.Content = append(res.Content, &mcp.ImageContent{Data: png, MIMEType: "image/png"})
+		return res, nil, nil
+	}
+	return fail(fmt.Errorf("linking is in state %q; try again", p.Phase))
 }

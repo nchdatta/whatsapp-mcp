@@ -12,31 +12,36 @@ It's one self-contained binary. Your messages stay on your computer, in a local 
 
 ## Quick start
 
-1. **Get the binary.** Download it from the [releases page](https://github.com/nchdatta/whatsapp-mcp/releases), install it with `go install github.com/nchdatta/whatsapp-mcp/cmd/whatsapp-mcp@latest`, or [build it](#build).
-2. **Link your account.** Run this once, in a terminal:
-   ```sh
-   whatsapp-mcp login
-   ```
-   Scan the QR code with WhatsApp (**Settings > Linked devices > Link a device**). If you can't scan, use a pairing code instead:
-   ```sh
-   whatsapp-mcp login --phone 15551234567
-   ```
-   Keep the terminal open until it says **Done**. Recent history syncs during that time.
-3. **Add it to Claude.**
+**1. Install and register**
 
-   Claude Code:
-   ```sh
-   claude mcp add whatsapp -- /path/to/whatsapp-mcp serve
-   ```
-   Claude Desktop (`claude_desktop_config.json`):
-   ```json
-   {
-     "mcpServers": {
-       "whatsapp": { "command": "C:\\path\\to\\whatsapp-mcp.exe", "args": ["serve"] }
-     }
-   }
-   ```
-4. Restart Claude and ask something like *"What did the family group talk about today?"*
+From a clone of this repo:
+
+```sh
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+# macOS / Linux
+sh scripts/setup.sh
+```
+
+The script builds `bin/whatsapp-mcp` and registers it with Claude Code. It also finds the `claude` binary bundled with the VS Code extension. Without Go, download a binary from the [releases page](https://github.com/nchdatta/whatsapp-mcp/releases), or use `go install github.com/nchdatta/whatsapp-mcp/cmd/whatsapp-mcp@latest`, then register it yourself:
+
+```sh
+claude mcp add --scope user whatsapp -- /path/to/whatsapp-mcp serve
+```
+
+For Claude Desktop, add this to `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "whatsapp": { "command": "C:\\path\\to\\whatsapp-mcp.exe", "args": ["serve"] } } }
+```
+
+**2. Link your WhatsApp from Claude**
+
+Restart Claude and say *"link my WhatsApp"*. Claude calls `link_whatsapp` and shows a QR code. If your client can't show images, the QR code is also saved as `link-qr.png` in the data directory. Scan it on your phone under **WhatsApp > Settings > Linked devices > Link a device**. It connects right away, with no restart.
+
+Prefer a code over a QR? Say *"link my WhatsApp with a pairing code for +1 555 123 4567"*, then enter the 8-character code under **Link with phone number instead**.
+
+You can also link from a terminal: `whatsapp-mcp login` (or `login --phone 15551234567`).
 
 Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio file as a voice note. Without it, only `.ogg`/`.opus` files can be sent as voice notes; anything can still be sent as a regular file.
 
@@ -45,6 +50,7 @@ Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio f
 | Tool | What it does |
 |---|---|
 | `whatsapp_status` | Shows whether an account is linked and connected |
+| `link_whatsapp` | Links an account: returns a QR code image, or a pairing code when given `phone` |
 | `list_chats` | Lists chats by recent activity, with a last-message preview |
 | `read_chat` | Shows the latest messages of a chat. Pass `before` to page back through older messages |
 | `search_messages` | Searches by text, chat, sender, date range or attachments |
@@ -109,7 +115,7 @@ internal/store/      SQLite schema and queries
 internal/wa/         WhatsApp connection: sync, names, sending, attachments, linking
 internal/mcpserver/  MCP tool definitions
 internal/audio/      voice notes: ffmpeg conversion, duration and waveform
-scripts/             optional helper scripts
+scripts/             setup.ps1 / setup.sh (build + register), wa_watch.py
 ```
 
 ## Build
@@ -135,8 +141,9 @@ The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask 
 
 ## Troubleshooting
 
-- **"no WhatsApp account is linked"**: run `whatsapp-mcp login`, then restart your MCP client.
-- **Unlinked after a while**: WhatsApp drops linked devices that stay offline for about two weeks. Run `login` again.
+- **"no WhatsApp account is linked"**: ask Claude to link it, or run `whatsapp-mcp login`.
+- **Setup script says "go build failed" on Windows**: the exe is in use. Quit Claude Code (which runs `serve`), then run the script again.
+- **Unlinked after a while**: WhatsApp drops linked devices that stay offline for about two weeks. Link again.
 - **Breaks after a WhatsApp update**: run `go get go.mau.fi/whatsmeow@latest`, then rebuild.
 - **Anything else**: check `whatsapp-mcp.log` in the data directory.
 

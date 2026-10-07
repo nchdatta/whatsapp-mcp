@@ -30,6 +30,7 @@ type Service struct {
 
 	names  sync.Map // user JID string -> display name
 	groups sync.Map // group JID string -> *groupMeta
+	pair   pairing
 }
 
 // AutoSaveLimit is the largest incoming attachment saved automatically.
@@ -76,7 +77,7 @@ func (s *Service) DataDir() string { return s.dataDir }
 // LoggedIn reports whether a WhatsApp account is linked.
 func (s *Service) LoggedIn() bool { return s.Client.Store.ID != nil }
 
-var ErrNotLoggedIn = errors.New("no WhatsApp account is linked: run `whatsapp-mcp login` in a terminal, then restart the MCP client")
+var ErrNotLoggedIn = errors.New("no WhatsApp account is linked yet: call the link_whatsapp tool (or run `whatsapp-mcp login` in a terminal)")
 
 // Online waits briefly for the connection, for operations that need the network.
 func (s *Service) Online(ctx context.Context) error {
@@ -103,6 +104,9 @@ func (s *Service) Status() map[string]any {
 		"linked":    s.LoggedIn(),
 		"connected": s.Client.IsLoggedIn(),
 		"data_dir":  s.dataDir,
+	}
+	if p := s.PairingStatus(); p.Phase != PairIdle && !s.LoggedIn() {
+		st["linking"] = p
 	}
 	if id := s.Client.Store.ID; id != nil {
 		st["account"] = "+" + id.User

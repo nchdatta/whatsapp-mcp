@@ -122,7 +122,7 @@ func serve(ctx context.Context) func(*wa.Service) error {
 				}
 			}()
 		} else {
-			fmt.Fprintln(os.Stderr, "No WhatsApp account linked; serving local history only. Run `whatsapp-mcp login`.")
+			fmt.Fprintln(os.Stderr, "No WhatsApp account linked yet; ask Claude to link it (link_whatsapp) or run `whatsapp-mcp login`.")
 		}
 		err := mcpserver.Run(ctx, svc, version)
 		if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || ctx.Err() != nil {

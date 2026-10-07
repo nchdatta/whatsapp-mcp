@@ -22,6 +22,7 @@ const inlineImageLimit = 4 << 20
 const instructions = `Access to the user's WhatsApp account.
 Chats are identified by JID (e.g. 15551234567@s.whatsapp.net, 1203...@g.us); most tools also accept a phone number or an exact chat title.
 Messages with attachments show [kind id=...]; pass that id to get_attachment to fetch the file (images are shown to you directly).
+If whatsapp_status shows no linked account, offer to run link_whatsapp and show the user the QR code.
 Always confirm with the user before sending anything.`
 
 // Run serves MCP over stdio until the client disconnects or ctx ends.
