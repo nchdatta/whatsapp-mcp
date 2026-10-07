@@ -81,7 +81,7 @@ claude.ai can't start programs on your computer, so it connects to a remote MCP 
 
 1. Quit Claude Desktop (both would use the same WhatsApp session), then start the HTTP server:
    ```sh
-   whatsapp-mcp serve --http 127.0.0.1:8080
+   whatsapp-mcp serve --http
    ```
    It prints the local URL, `http://127.0.0.1:8080/mcp/<token>`.
 2. In another terminal, give it a public HTTPS address, for example with [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/):
@@ -127,7 +127,7 @@ Chats can be referred to by JID, by phone number, or by exact chat title.
 | `whatsapp-mcp login [--phone N]` | Link an account from a terminal |
 | `whatsapp-mcp status` | Show the linked account |
 | `whatsapp-mcp unlink [--delete-data]` | Remove this computer from your WhatsApp linked devices; `--delete-data` also deletes local messages and attachments (alias: `logout`) |
-| `whatsapp-mcp serve [--http ADDR]` | The MCP server; Claude Desktop runs this. `--http` serves remote clients such as claude.ai |
+| `whatsapp-mcp serve [--http [ADDR]]` | The MCP server; Claude Desktop runs this. `--http` serves remote clients such as claude.ai, on 127.0.0.1:8080 unless you give an address |
 | `whatsapp-mcp token [--rotate]` | Show, or replace, the token that protects `serve --http` |
 | `whatsapp-mcp version` | Print the version |
 

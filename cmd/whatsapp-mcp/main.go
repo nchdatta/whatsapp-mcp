@@ -34,7 +34,7 @@ Commands:
   install [--here]         add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
   uninstall                remove it from Claude Desktop
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
-  serve [--http ADDR]      run the MCP server on stdio (your MCP client runs this),
+  serve [--http [ADDR]]    run the MCP server on stdio (your MCP client runs this),
                            or over HTTP for remote clients such as claude.ai
   token [--rotate]         show (or replace) the secret that protects serve --http
   unlink [--delete-data]   unlink WhatsApp from this computer (alias: logout)
@@ -62,9 +62,9 @@ func main() {
 	here := flags.Bool("here", false, "install: register this binary where it is instead of copying it to the per-user programs folder")
 	deleteData := flags.Bool("delete-data", false, "unlink: also delete local message history and attachments")
 	yes := flags.Bool("yes", false, "unlink/uninstall: don't ask for confirmation")
-	httpAddr := flags.String("http", "", "serve: listen for MCP over HTTP on this address (e.g. 127.0.0.1:8080) instead of stdio")
+	httpAddr := flags.String("http", "", "serve: listen for MCP over HTTP on this address (default 127.0.0.1:8080 when given alone) instead of stdio")
 	rotate := flags.Bool("rotate", false, "token: replace the HTTP token, invalidating old URLs")
-	flags.Parse(os.Args[2:])
+	flags.Parse(defaultHTTPAddr(os.Args[2:]))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -158,6 +158,21 @@ func serve(ctx context.Context, httpAddr string) func(*wa.Service) error {
 		}
 		return err
 	}
+}
+
+const defaultHTTP = "127.0.0.1:8080"
+
+// defaultHTTPAddr lets "--http" be given without an address by filling in
+// defaultHTTP when no value follows it.
+func defaultHTTPAddr(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	for i, a := range args {
+		out = append(out, a)
+		if (a == "--http" || a == "-http") && (i+1 == len(args) || strings.HasPrefix(args[i+1], "-")) {
+			out = append(out, defaultHTTP)
+		}
+	}
+	return out
 }
 
 // showToken prints the secret path for `serve --http`.
