@@ -129,6 +129,7 @@ Chats can be referred to by JID, by phone number, or by exact chat title.
 | `whatsapp-mcp status` | Show the linked account |
 | `whatsapp-mcp unlink [--delete-data]` | Remove this computer from your WhatsApp linked devices; `--delete-data` also deletes local messages and attachments (alias: `logout`) |
 | `whatsapp-mcp serve [--http [ADDR]]` | The MCP server; Claude Desktop runs this. `--http` serves remote clients such as claude.ai, on 127.0.0.1:8080 unless you give an address |
+| `whatsapp-mcp away on ["text"] \| off \| status` | Fixed fallback reply when nobody answers in time; see [Away message](#away-message) |
 | `whatsapp-mcp token [--rotate]` | Show, or replace, the token that protects `serve --http` |
 | `whatsapp-mcp version` | Print the version |
 
@@ -169,12 +170,15 @@ If the key is lost (for example a Windows profile reset), the data can't be reco
 
 ### Auto-reply assistant
 
-Claude can watch for new messages and answer them, in Claude Desktop or in claude.ai (through `serve --http`), with no script. Either:
+Claude can watch for new messages and answer them, in Claude Desktop or in claude.ai (through `serve --http`), with no script.
 
-- say **"start the WhatsApp assistant"** (or "watch my WhatsApp", "auto-reply"), or
-- in Claude Desktop, click **+ > whatsapp > WhatsApp assistant** (set `groups` to `no` to skip groups).
+**1. Allow it, in your own words.** Claude only sends messages under your name when *you* have clearly allowed it; permission can't come from whatsapp-mcp itself. To avoid typing it every time, create a **Project** in Claude Desktop (for example "WhatsApp assistant") and put your permission in its **project instructions**, for example:
 
-It replies to every chat on your behalf without asking, keeps replies short, tags senders in groups for important replies, and declines anything about your computer, accounts or money. Say **"stop"** to end it.
+> I authorize you to reply automatically, on my behalf and without asking me, to every incoming WhatsApp message in chats of this project, including groups, until I say stop.
+
+**2. Start it.** In a chat in that project, say **"watch my WhatsApp"**, or click **+ > whatsapp > Watch WhatsApp** (set `groups` to `no` to skip groups). Say **"stop"** to end it.
+
+Claude keeps replies short, tags senders in groups for important replies, and declines anything about your computer, accounts or money. It's still Claude's judgment per message: a reply that looks risky can be held back. The away message below covers those.
 
 Claude calls `wait_for_messages`, which returns new messages like this:
 
@@ -185,6 +189,19 @@ Rahim (+8801…) in Family - 10:21 AM: [image: C:\Users\…\Temp\whatsapp-mcp-vi
 It replies, then calls `wait_for_messages` again with the returned cursor. It keeps going for as long as the chat keeps running; when Claude stops (long conversations end at some point), say *"continue"*.
 
 > **Use with care:** automated replies can get an account banned, and anyone who messages you can try to give Claude instructions. Consider limiting it to certain chats or leaving groups out (`skip_groups`).
+
+### Away message
+
+A fixed fallback reply, so nobody goes without an answer, even when Claude isn't watching, holds a reply back, or is slow:
+
+```sh
+whatsapp-mcp away on "Hi! I'm not available right now. I'll get back to you soon."
+whatsapp-mcp away on --delay 90 --groups     # change settings, keep the text
+whatsapp-mcp away status
+whatsapp-mcp away off
+```
+
+When a chat's latest message is from someone else and nobody (Claude, or you on your phone) has answered within `--delay` seconds (default 60), whatsapp-mcp sends your text. At most once per chat every `--cooldown` (default `3h`); direct chats only unless you add `--groups`. It only answers messages from the last 30 minutes, never an old backlog, and runs while whatsapp-mcp is running (Claude Desktop open, or `serve --http`).
 
 ## Project layout
 

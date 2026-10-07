@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
@@ -36,7 +37,9 @@ Commands:
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
   serve [--http [ADDR]]    run the MCP server on stdio (your MCP client runs this),
                            or over HTTP for remote clients such as claude.ai
-  token [--rotate]         show (or replace) the secret that protects serve --http
+  away on ["message"]      reply with a fixed message when nobody answers within --delay
+                           seconds (60); also --cooldown 3h, --groups. away off / away status
+  token [--rotate]       show (or replace) the secret that protects serve --http
   unlink [--delete-data]   unlink WhatsApp from this computer (alias: logout)
   status                   show the linked account
   version                  print the version
@@ -64,7 +67,15 @@ func main() {
 	yes := flags.Bool("yes", false, "unlink/uninstall: don't ask for confirmation")
 	httpAddr := flags.String("http", "", "serve: listen for MCP over HTTP on this address (default 127.0.0.1:8080 when given alone) instead of stdio")
 	rotate := flags.Bool("rotate", false, "token: replace the HTTP token, invalidating old URLs")
-	flags.Parse(defaultHTTPAddr(os.Args[2:]))
+	awayDelay := flags.Int("delay", 60, "away: seconds to wait for a reply before sending the away message")
+	awayCooldown := flags.Duration("cooldown", 3*time.Hour, "away: at most one away message per chat in this time")
+	awayGroups := flags.Bool("groups", false, "away: also reply in groups")
+	args := os.Args[2:]
+	sub := ""
+	if cmd == "away" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		sub, args = args[0], args[1:]
+	}
+	positional := parseInterleaved(flags, defaultHTTPAddr(args))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -73,6 +84,11 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = withService(*dataFlag, zerolog.InfoLevel, serve(ctx, *httpAddr))
+	case "away":
+		err = withService(*dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
+			return away(ctx, svc, sub, strings.Join(positional, " "),
+				time.Duration(*awayDelay)*time.Second, *awayCooldown, *awayGroups)
+		})
 	case "token":
 		err = showToken(*dataFlag, *rotate)
 	case "login":
@@ -143,6 +159,7 @@ func serve(ctx context.Context, httpAddr string) func(*wa.Service) error {
 		} else {
 			fmt.Fprintln(os.Stderr, "No WhatsApp account linked yet; ask Claude to link it (link_whatsapp) or run `whatsapp-mcp login`.")
 		}
+		go svc.RunAway(ctx)
 		if httpAddr != "" {
 			token, err := config.HTTPToken(svc.DataDir(), false)
 			if err != nil {
@@ -173,6 +190,42 @@ func defaultHTTPAddr(args []string) []string {
 		}
 	}
 	return out
+}
+
+// away turns the fallback away message on or off, or shows it.
+func away(ctx context.Context, svc *wa.Service, sub, message string, delay, cooldown time.Duration, groups bool) error {
+	a, err := svc.AwaySettings(ctx)
+	if err != nil {
+		return err
+	}
+	switch sub {
+	case "on":
+		a.Enabled, a.Delay, a.Cooldown, a.Groups = true, delay, cooldown, groups
+		if message != "" {
+			a.Message = message
+		}
+	case "off":
+		a.Enabled = false
+	case "", "status":
+	default:
+		return fmt.Errorf(`unknown "away %s"; use: away on ["message"] [--delay 60] [--cooldown 3h] [--groups], away off, away status`, sub)
+	}
+	if sub == "on" || sub == "off" {
+		if err := svc.SetAway(ctx, a); err != nil {
+			return err
+		}
+	}
+	if !a.Enabled {
+		fmt.Println("Away message: off")
+		return nil
+	}
+	where := "direct chats"
+	if a.Groups {
+		where = "direct chats and groups"
+	}
+	fmt.Printf("Away message: on\n  Text:     %s\n  Sent when a message in %s gets no reply within %s,\n  at most once per chat every %s, while whatsapp-mcp is running (Claude Desktop open).\n",
+		a.Message, where, a.Delay, a.Cooldown)
+	return nil
 }
 
 // showToken prints the secret path for `serve --http`.
@@ -403,4 +456,19 @@ func installInteractive() {
 	}
 	fmt.Print("\nPress Enter to close this window.")
 	bufio.NewReader(os.Stdin).ReadString('\n')
+}
+
+// parseInterleaved parses flags that may come before, between or after
+// positional arguments (the flag package stops at the first positional one),
+// and returns the positional arguments.
+func parseInterleaved(flags *flag.FlagSet, args []string) []string {
+	var positional []string
+	for {
+		flags.Parse(args)
+		if flags.NArg() == 0 {
+			return positional
+		}
+		positional = append(positional, flags.Arg(0))
+		args = flags.Args()[1:]
+	}
 }

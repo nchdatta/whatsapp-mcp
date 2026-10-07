@@ -56,7 +56,7 @@ func (t *tools) waitForMessages(ctx context.Context, _ *mcp.CallToolRequest, a w
 		}
 		if len(fresh) > 0 {
 			var b strings.Builder
-			fmt.Fprintf(&b, "cursor: %d\n%d new message(s). Reply with send_text to the [chat: ...] JID, then call wait_for_messages again with this cursor.\n", cursor, len(fresh))
+			fmt.Fprintf(&b, "cursor: %d\n%d new message(s). Call wait_for_messages again with this cursor to keep watching.\n", cursor, len(fresh))
 			for _, m := range fresh {
 				b.WriteString(t.watchLine(ctx, m) + "\n")
 			}

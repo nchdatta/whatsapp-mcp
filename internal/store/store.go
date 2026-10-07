@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS message (
 
 CREATE INDEX IF NOT EXISTS message_by_chat ON message (chat_jid, sent_at);
 CREATE INDEX IF NOT EXISTS message_by_time ON message (sent_at);
+
+CREATE TABLE IF NOT EXISTS setting (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS away_sent (
+	chat_jid TEXT PRIMARY KEY,
+	sent_at  INTEGER NOT NULL
+);
 `
 
 // DSN returns a connection string for an encrypted database (keyHex: 64 hex
