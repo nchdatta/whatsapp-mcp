@@ -10,11 +10,13 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/rs/zerolog"
 
 	"github.com/nchdatta/whatsapp-mcp/internal/config"
+	"github.com/nchdatta/whatsapp-mcp/internal/desktop"
 	"github.com/nchdatta/whatsapp-mcp/internal/mcpserver"
 	"github.com/nchdatta/whatsapp-mcp/internal/wa"
 )
@@ -25,7 +27,9 @@ var version = "dev"
 const usage = `whatsapp-mcp - WhatsApp for Claude and other MCP clients
 
 Commands:
-  login [--phone NUMBER]   link your WhatsApp account (run once, in a terminal)
+  install                  add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
+  uninstall                remove it from Claude Desktop
+  login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
   serve                    run the MCP server on stdio (your MCP client runs this)
   logout                   unlink this device and delete the session
   status                   show the linked account
@@ -77,6 +81,10 @@ func main() {
 			}
 			return nil
 		})
+	case "install":
+		err = install(*dataFlag)
+	case "uninstall":
+		err = uninstall()
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -133,13 +141,61 @@ func serve(ctx context.Context) func(*wa.Service) error {
 }
 
 func printSetup(dataDir string) {
-	exe, _ := os.Executable()
-	fmt.Printf(`
-Done. Data is stored in %s
+	fmt.Printf("\nDone. Data is stored in %s\n\nAdd it to Claude Desktop with:  whatsapp-mcp install\n", dataDir)
+}
 
-Connect it to Claude:
-  Claude Code:     claude mcp add whatsapp -- "%s" serve
-  Claude Desktop:  add to claude_desktop_config.json
-                   "mcpServers": { "whatsapp": { "command": %q, "args": ["serve"] } }
-`, dataDir, exe, exe)
+// install registers this binary in Claude Desktop's config.
+func install(dataFlag string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return err
+	}
+	path, err := desktop.ConfigPath()
+	if err != nil {
+		return err
+	}
+	srv := desktop.Server{Command: exe, Args: []string{"serve"}}
+	if dataFlag != "" {
+		dir, err := config.DataDir(dataFlag)
+		if err != nil {
+			return err
+		}
+		srv.Args = append(srv.Args, "--data", dir)
+	}
+	changed, err := desktop.Install(path, srv)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		fmt.Println("Already installed in Claude Desktop:", path)
+		return nil
+	}
+	fmt.Printf(`Added to Claude Desktop: %s
+(previous config saved as claude_desktop_config.json.bak)
+
+Next:
+  1. Quit Claude Desktop completely (also from the system tray / menu bar) and start it again.
+  2. Ask Claude: "link my WhatsApp" and scan the QR code it shows.
+`, path)
+	return nil
+}
+
+func uninstall() error {
+	path, err := desktop.ConfigPath()
+	if err != nil {
+		return err
+	}
+	removed, err := desktop.Uninstall(path)
+	if err != nil {
+		return err
+	}
+	if !removed {
+		fmt.Println("Not installed in Claude Desktop:", path)
+		return nil
+	}
+	fmt.Println("Removed from Claude Desktop. Restart it to apply. Your WhatsApp data is kept in", config.DefaultDataDir())
+	return nil
 }

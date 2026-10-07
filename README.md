@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml)
 
-Connect Claude (or any [MCP](https://modelcontextprotocol.io) client) to your WhatsApp account. Read and search your chats, look at photos people send you, and send messages, files and voice notes.
+Use your WhatsApp from **Claude Desktop**. Read and search your chats, look at photos people send you, and send messages, files and voice notes. It works with any other [MCP](https://modelcontextprotocol.io) client too.
 
-It's one self-contained binary. Your messages stay on your computer, in a local SQLite database, and only reach the model when it calls a tool.
+It's one self-contained binary. Your messages stay on your computer, in a local SQLite database, and only reach Claude when it calls a tool.
 
 > **Use at your own risk.** This links as a WhatsApp Web device through the unofficial [whatsmeow](https://github.com/tulir/whatsmeow) library. Automated or bulk messaging can get an account banned.
 >
@@ -12,9 +12,9 @@ It's one self-contained binary. Your messages stay on your computer, in a local 
 
 ## Quick start
 
-**1. Install and register**
+**1. Install into Claude Desktop**
 
-From a clone of this repo:
+From a clone of this repo (requires [Go](https://go.dev/dl/)):
 
 ```sh
 # Windows
@@ -23,27 +23,37 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 sh scripts/setup.sh
 ```
 
-The script builds `bin/whatsapp-mcp` and registers it with Claude Code. It also finds the `claude` binary bundled with the VS Code extension. Without Go, download a binary from the [releases page](https://github.com/nchdatta/whatsapp-mcp/releases), or use `go install github.com/nchdatta/whatsapp-mcp/cmd/whatsapp-mcp@latest`, then register it yourself:
+The script builds `bin/whatsapp-mcp` and runs `whatsapp-mcp install`, which adds it to Claude Desktop's `claude_desktop_config.json`. It finds the file for regular and Microsoft Store installs, keeps your other settings, and saves a `.bak` copy first.
+
+Without Go, download a binary from the [releases page](https://github.com/nchdatta/whatsapp-mcp/releases), then run:
+
+```sh
+whatsapp-mcp install
+```
+
+**2. Restart Claude Desktop**
+
+Quit it completely, including from the system tray (Windows) or menu bar (macOS), then start it again. `whatsapp` should appear under **Settings > Developer**.
+
+**3. Link your WhatsApp**
+
+Ask Claude: *"link my WhatsApp"*. It shows a QR code. Scan it on your phone under **WhatsApp > Settings > Linked devices > Link a device**. It connects right away.
+
+- If the image doesn't show, open `link-qr.png` in the data directory.
+- Prefer a code? Ask *"link my WhatsApp with a pairing code for +1 555 123 4567"*, then enter the code under **Link with phone number instead**.
+- You can also link from a terminal with `whatsapp-mcp login`.
+
+Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio file as a voice note. Without it, only `.ogg`/`.opus` files can be sent as voice notes; anything can still be sent as a regular file.
+
+### Other MCP clients
+
+Run `whatsapp-mcp serve` over stdio. For example, in Claude Code:
 
 ```sh
 claude mcp add --scope user whatsapp -- /path/to/whatsapp-mcp serve
 ```
 
-For Claude Desktop, add this to `claude_desktop_config.json`:
-
-```json
-{ "mcpServers": { "whatsapp": { "command": "C:\\path\\to\\whatsapp-mcp.exe", "args": ["serve"] } } }
-```
-
-**2. Link your WhatsApp from Claude**
-
-Restart Claude and say *"link my WhatsApp"*. Claude calls `link_whatsapp` and shows a QR code. If your client can't show images, the QR code is also saved as `link-qr.png` in the data directory. Scan it on your phone under **WhatsApp > Settings > Linked devices > Link a device**. It connects right away, with no restart.
-
-Prefer a code over a QR? Say *"link my WhatsApp with a pairing code for +1 555 123 4567"*, then enter the 8-character code under **Link with phone number instead**.
-
-You can also link from a terminal: `whatsapp-mcp login` (or `login --phone 15551234567`).
-
-Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio file as a voice note. Without it, only `.ogg`/`.opus` files can be sent as voice notes; anything can still be sent as a regular file.
+Only use one client at a time with the same data directory; see [How it works](#how-it-works).
 
 ## Tools
 
@@ -64,19 +74,21 @@ Chats can be referred to by JID, by phone number, or by exact chat title.
 
 ## How it works
 
-- `whatsapp-mcp serve` is started by your MCP client and talks MCP over stdio. While it runs, it stays connected to WhatsApp and records new messages.
+- Claude Desktop starts `whatsapp-mcp serve` when it launches, and stops it when it quits. It talks MCP over stdio. While it runs, it stays connected to WhatsApp and records new messages.
 - Incoming attachments up to 100 MB are saved automatically. Larger ones download when you ask for them.
-- Messages that arrive while the client is closed are filled in by WhatsApp's history sync on the next start. That is usually complete, but not guaranteed.
-- Run only one `serve` per data directory. If two processes share a session, WhatsApp disconnects one of them.
+- Messages that arrive while Claude Desktop is closed are filled in by WhatsApp's history sync on the next start. That is usually complete, but not guaranteed.
+- Run only one `serve` per data directory. If two apps share a session (for example Claude Desktop and Claude Code), WhatsApp disconnects one of them. Give the second app its own folder with `--data`.
 
 ### Commands
 
 | Command | |
 |---|---|
-| `whatsapp-mcp login [--phone N]` | Link an account |
-| `whatsapp-mcp serve` | MCP server (your client runs this) |
+| `whatsapp-mcp install [--data DIR]` | Add to Claude Desktop |
+| `whatsapp-mcp uninstall` | Remove from Claude Desktop |
+| `whatsapp-mcp login [--phone N]` | Link an account from a terminal |
 | `whatsapp-mcp status` | Show the linked account |
 | `whatsapp-mcp logout` | Unlink and delete the session (history is kept) |
+| `whatsapp-mcp serve` | The MCP server; Claude Desktop runs this |
 | `whatsapp-mcp version` | Print the version |
 
 All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
@@ -109,13 +121,14 @@ python scripts/wa_watch.py
 ## Project layout
 
 ```
-cmd/whatsapp-mcp/    CLI entry point (login, serve, status, logout)
+cmd/whatsapp-mcp/    CLI entry point (install, serve, login, status, logout)
 internal/config/     data directory and logging
+internal/desktop/    Claude Desktop config (install / uninstall)
 internal/store/      SQLite schema and queries
 internal/wa/         WhatsApp connection: sync, names, sending, attachments, linking
 internal/mcpserver/  MCP tool definitions
 internal/audio/      voice notes: ffmpeg conversion, duration and waveform
-scripts/             setup.ps1 / setup.sh (build + register), wa_watch.py
+scripts/             setup.ps1 / setup.sh (build + install), wa_watch.py
 ```
 
 ## Build
@@ -141,8 +154,9 @@ The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask 
 
 ## Troubleshooting
 
+- **`whatsapp` doesn't appear in Claude Desktop**: make sure Claude Desktop fully quit before restarting. If the entry is missing from the config, quit Claude Desktop and run `whatsapp-mcp install` again. Details are in Claude Desktop's MCP logs (**Settings > Developer > Open Logs Folder**).
 - **"no WhatsApp account is linked"**: ask Claude to link it, or run `whatsapp-mcp login`.
-- **Setup script says "go build failed" on Windows**: the exe is in use. Quit Claude Code (which runs `serve`), then run the script again.
+- **Setup script says "go build failed" on Windows**: Claude Desktop is running the exe. Quit Claude Desktop, then run the script again.
 - **Unlinked after a while**: WhatsApp drops linked devices that stay offline for about two weeks. Link again.
 - **Breaks after a WhatsApp update**: run `go get go.mau.fi/whatsmeow@latest`, then rebuild.
 - **Anything else**: check `whatsapp-mcp.log` in the data directory.
