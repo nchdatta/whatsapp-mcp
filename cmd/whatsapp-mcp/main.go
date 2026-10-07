@@ -1,4 +1,4 @@
-// Command whatsapp-mcp connects Claude (or any MCP client) to a personal
+// Command whatsapp-mcp connects Claude (or any MCP client) to a
 // WhatsApp account.
 package main
 

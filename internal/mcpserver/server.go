@@ -19,7 +19,7 @@ import (
 // Images up to this size are returned inline so the model can look at them.
 const inlineImageLimit = 4 << 20
 
-const instructions = `Access to the user's personal WhatsApp account.
+const instructions = `Access to the user's WhatsApp account.
 Chats are identified by JID (e.g. 15551234567@s.whatsapp.net, 1203...@g.us); most tools also accept a phone number or an exact chat title.
 Messages with attachments show [kind id=...]; pass that id to get_attachment to fetch the file (images are shown to you directly).
 Always confirm with the user before sending anything.`

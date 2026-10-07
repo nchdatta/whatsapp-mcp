@@ -1,6 +1,6 @@
 # whatsapp-mcp
 
-Connect Claude (or any [MCP](https://modelcontextprotocol.io) client) to your personal WhatsApp account. Read and search your chats, look at photos people send you, and send messages, files and voice notes.
+Connect Claude (or any [MCP](https://modelcontextprotocol.io) client) to your WhatsApp account. Read and search your chats, look at photos people send you, and send messages, files and voice notes.
 
 It's one self-contained binary. Your messages stay on your computer, in a local SQLite database, and only reach the model when it calls a tool.
 
