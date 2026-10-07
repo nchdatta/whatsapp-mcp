@@ -118,7 +118,7 @@ func Inspect(data []byte) (Info, error) {
 	}
 	samples := last - preSkip
 	if samples <= 0 {
-		return Info{}, errors.New("Ogg Opus file has no audio")
+		return Info{}, errors.New("ogg opus file has no audio")
 	}
 
 	// Spread each audio page's bytes over its time span
