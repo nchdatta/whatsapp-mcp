@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -27,7 +29,7 @@ var version = "dev"
 const usage = `whatsapp-mcp - WhatsApp for Claude and other MCP clients
 
 Commands:
-  install                  add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
+  install [--here]         add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
   uninstall                remove it from Claude Desktop
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
   serve                    run the MCP server on stdio (your MCP client runs this)
@@ -40,6 +42,10 @@ Default data directory: %s
 `
 
 func main() {
+	if len(os.Args) < 2 && launchedByDoubleClick() {
+		installInteractive()
+		return
+	}
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, usage, config.EnvDataDir, config.DefaultDataDir())
 		os.Exit(2)
@@ -49,6 +55,7 @@ func main() {
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	dataFlag := flags.String("data", "", "data directory")
 	phone := flags.String("phone", "", "login: use a pairing code for this phone number instead of a QR code")
+	here := flags.Bool("here", false, "install: register this binary where it is instead of copying it to the per-user programs folder")
 	flags.Parse(os.Args[2:])
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -82,7 +89,7 @@ func main() {
 			return nil
 		})
 	case "install":
-		err = install(*dataFlag)
+		err = install(*dataFlag, *here)
 	case "uninstall":
 		err = uninstall()
 	case "version", "-v", "--version":
@@ -145,13 +152,23 @@ func printSetup(dataDir string) {
 }
 
 // install registers this binary in Claude Desktop's config.
-func install(dataFlag string) error {
+func install(dataFlag string, here bool) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return err
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if !here {
+		dst, err := desktop.BinaryPath()
+		if err != nil {
+			return err
+		}
+		if exe, err = desktop.Place(dst); err != nil {
+			return err
+		}
+		fmt.Println("Installed binary:", exe)
 	}
 	path, err := desktop.ConfigPath()
 	if err != nil {
@@ -198,4 +215,21 @@ func uninstall() error {
 	}
 	fmt.Println("Removed from Claude Desktop. Restart it to apply. Your WhatsApp data is kept in", config.DefaultDataDir())
 	return nil
+}
+
+// launchedByDoubleClick reports a no-argument start from Explorer: Windows
+// gives the process its own console, so it is the only process attached.
+func launchedByDoubleClick() bool {
+	return runtime.GOOS == "windows" && consoleProcessCount() == 1
+}
+
+// installInteractive runs install for people who double-clicked the download,
+// keeping the window open so they can read the result.
+func installInteractive() {
+	fmt.Printf("whatsapp-mcp %s - installing into Claude Desktop\n\n", version)
+	if err := install("", false); err != nil {
+		fmt.Println("\nInstall failed:", err)
+	}
+	fmt.Print("\nPress Enter to close this window.")
+	bufio.NewReader(os.Stdin).ReadString('\n')
 }

@@ -12,9 +12,24 @@ It's one self-contained binary. Your messages stay on your computer, in a local 
 
 ## Quick start
 
-**1. Install into Claude Desktop**
+**1. Install**
 
-From a clone of this repo (requires [Go](https://go.dev/dl/)):
+| Platform | Command |
+|---|---|
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/nchdatta/whatsapp-mcp/main/scripts/install.ps1 \| iex` |
+| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/nchdatta/whatsapp-mcp/main/scripts/install.sh \| sh` |
+
+The installer downloads the right build for your system from the [latest release](https://github.com/nchdatta/whatsapp-mcp/releases/latest), verifies its checksum, and runs `whatsapp-mcp install`. That command:
+
+- copies the binary to a per-user folder: `%LOCALAPPDATA%\Programs\whatsapp-mcp\` on Windows, `~/.local/bin/` on macOS and Linux,
+- adds it to Claude Desktop's `claude_desktop_config.json`. It finds the file for regular and Microsoft Store installs, keeps your other settings, and saves a `.bak` copy first.
+
+On Windows you can also download `whatsapp-mcp-windows-amd64.exe` (or `-arm64`) from the release and **double-click it**. Builds exist for Windows, macOS and Linux on both amd64 and arm64.
+
+To update, run the same command again; quit Claude Desktop first. To pin a version, set `WHATSAPP_MCP_VERSION=v1.2.3` before running the installer.
+
+<details>
+<summary>From source (requires Go)</summary>
 
 ```sh
 # Windows
@@ -23,13 +38,8 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 sh scripts/setup.sh
 ```
 
-The script builds `bin/whatsapp-mcp` and runs `whatsapp-mcp install`, which adds it to Claude Desktop's `claude_desktop_config.json`. It finds the file for regular and Microsoft Store installs, keeps your other settings, and saves a `.bak` copy first.
-
-Without Go, download a binary from the [releases page](https://github.com/nchdatta/whatsapp-mcp/releases), then run:
-
-```sh
-whatsapp-mcp install
-```
+Both build `bin/whatsapp-mcp` and run `install`.
+</details>
 
 **2. Restart Claude Desktop**
 
@@ -83,7 +93,7 @@ Chats can be referred to by JID, by phone number, or by exact chat title.
 
 | Command | |
 |---|---|
-| `whatsapp-mcp install [--data DIR]` | Add to Claude Desktop |
+| `whatsapp-mcp install [--here] [--data DIR]` | Copy to the per-user programs folder and add to Claude Desktop (`--here`: register in place) |
 | `whatsapp-mcp uninstall` | Remove from Claude Desktop |
 | `whatsapp-mcp login [--phone N]` | Link an account from a terminal |
 | `whatsapp-mcp status` | Show the linked account |
@@ -128,7 +138,7 @@ internal/store/      SQLite schema and queries
 internal/wa/         WhatsApp connection: sync, names, sending, attachments, linking
 internal/mcpserver/  MCP tool definitions
 internal/audio/      voice notes: ffmpeg conversion, duration and waveform
-scripts/             setup.ps1 / setup.sh (build + install), wa_watch.py
+scripts/             install.ps1 / install.sh (release installers), setup.ps1 / setup.sh (from source), wa_watch.py
 ```
 
 ## Build
@@ -140,15 +150,7 @@ go build -o whatsapp-mcp ./cmd/whatsapp-mcp
 go test ./...
 ```
 
-Release builds for all platforms:
-
-```sh
-for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
-  os=${target%/*}; arch=${target#*/}; ext=; [ "$os" = windows ] && ext=.exe
-  CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=1.0.0" \
-    -o dist/whatsapp-mcp-$os-$arch$ext ./cmd/whatsapp-mcp
-done
-```
+Releases: push a tag such as `v1.2.3`. [`.github/workflows/release.yml`](.github/workflows/release.yml) tests the code, builds all six platform binaries with the version embedded, and publishes them with `SHA256SUMS` as a GitHub Release.
 
 The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask for confirmation on first run.
 
@@ -156,7 +158,7 @@ The binaries are unsigned, so Windows SmartScreen and macOS Gatekeeper will ask 
 
 - **`whatsapp` doesn't appear in Claude Desktop**: make sure Claude Desktop fully quit before restarting. If the entry is missing from the config, quit Claude Desktop and run `whatsapp-mcp install` again. Details are in Claude Desktop's MCP logs (**Settings > Developer > Open Logs Folder**).
 - **"no WhatsApp account is linked"**: ask Claude to link it, or run `whatsapp-mcp login`.
-- **Setup script says "go build failed" on Windows**: Claude Desktop is running the exe. Quit Claude Desktop, then run the script again.
+- **"the installed whatsapp-mcp is in use"**: Claude Desktop is running it. Quit Claude Desktop (including from the tray), then install again.
 - **Unlinked after a while**: WhatsApp drops linked devices that stay offline for about two weeks. Link again.
 - **Breaks after a WhatsApp update**: run `go get go.mau.fi/whatsmeow@latest`, then rebuild.
 - **Anything else**: check `whatsapp-mcp.log` in the data directory.
