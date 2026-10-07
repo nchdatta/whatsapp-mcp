@@ -73,6 +73,26 @@ claude mcp add --scope user whatsapp -- /path/to/whatsapp-mcp serve
 
 Only use one client at a time with the same data directory; see [How it works](#how-it-works).
 
+### claude.ai (web and mobile)
+
+claude.ai can't start programs on your computer, so it connects to a remote MCP server over HTTPS instead.
+
+> **Security:** the connector URL contains a secret token that gives full access to your WhatsApp: reading every chat and sending as you. Don't share it or put it in screenshots. If it leaks, run `whatsapp-mcp token --rotate` and restart `serve --http`. Proper OAuth is planned; see [docs/oauth.md](docs/oauth.md).
+
+1. Quit Claude Desktop (both would use the same WhatsApp session), then start the HTTP server:
+   ```sh
+   whatsapp-mcp serve --http 127.0.0.1:8080
+   ```
+   It prints the local URL, `http://127.0.0.1:8080/mcp/<token>`.
+2. In another terminal, give it a public HTTPS address, for example with [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/):
+   ```sh
+   cloudflared tunnel --url http://127.0.0.1:8080
+   ```
+   This prints a `https://<random>.trycloudflare.com` address. Quick tunnels get a new address each run; set up a named tunnel for a stable one.
+3. In claude.ai, open **Settings > Connectors > Add custom connector**, and enter `https://<random>.trycloudflare.com/mcp/<token>`. The connector then also works in the Claude mobile apps.
+
+It only works while your computer and both commands are running. `whatsapp-mcp token` shows the token again. Other HTTP clients can send `Authorization: Bearer <token>` to `/mcp` instead of putting the token in the path.
+
 ## Tools
 
 | Tool | What it does |
@@ -107,7 +127,8 @@ Chats can be referred to by JID, by phone number, or by exact chat title.
 | `whatsapp-mcp login [--phone N]` | Link an account from a terminal |
 | `whatsapp-mcp status` | Show the linked account |
 | `whatsapp-mcp unlink [--delete-data]` | Remove this computer from your WhatsApp linked devices; `--delete-data` also deletes local messages and attachments (alias: `logout`) |
-| `whatsapp-mcp serve` | The MCP server; Claude Desktop runs this |
+| `whatsapp-mcp serve [--http ADDR]` | The MCP server; Claude Desktop runs this. `--http` serves remote clients such as claude.ai |
+| `whatsapp-mcp token [--rotate]` | Show, or replace, the token that protects `serve --http` |
 | `whatsapp-mcp version` | Print the version |
 
 All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
@@ -125,6 +146,7 @@ All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
 | `session.db` | Your WhatsApp device keys. **Anyone with this file can use your account.** |
 | `history.db` | Chats and messages |
 | `media/` | Saved attachments |
+| `http-token` | Secret for `serve --http`. **Anyone with it can use your WhatsApp through the HTTP server.** |
 | `whatsapp-mcp.log` | Logs. Check here first when something goes wrong |
 
 ### Watching messages from a script

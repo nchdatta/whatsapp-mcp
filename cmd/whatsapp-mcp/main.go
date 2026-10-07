@@ -34,7 +34,9 @@ Commands:
   install [--here]         add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
   uninstall                remove it from Claude Desktop
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
-  serve                    run the MCP server on stdio (your MCP client runs this)
+  serve [--http ADDR]      run the MCP server on stdio (your MCP client runs this),
+                           or over HTTP for remote clients such as claude.ai
+  token [--rotate]         show (or replace) the secret that protects serve --http
   unlink [--delete-data]   unlink WhatsApp from this computer (alias: logout)
   status                   show the linked account
   version                  print the version
@@ -60,6 +62,8 @@ func main() {
 	here := flags.Bool("here", false, "install: register this binary where it is instead of copying it to the per-user programs folder")
 	deleteData := flags.Bool("delete-data", false, "unlink: also delete local message history and attachments")
 	yes := flags.Bool("yes", false, "unlink/uninstall: don't ask for confirmation")
+	httpAddr := flags.String("http", "", "serve: listen for MCP over HTTP on this address (e.g. 127.0.0.1:8080) instead of stdio")
+	rotate := flags.Bool("rotate", false, "token: replace the HTTP token, invalidating old URLs")
 	flags.Parse(os.Args[2:])
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -68,7 +72,9 @@ func main() {
 	var err error
 	switch cmd {
 	case "serve":
-		err = withService(*dataFlag, zerolog.InfoLevel, serve(ctx))
+		err = withService(*dataFlag, zerolog.InfoLevel, serve(ctx, *httpAddr))
+	case "token":
+		err = showToken(*dataFlag, *rotate)
 	case "login":
 		err = withService(*dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
 			if err := svc.Link(ctx, *phone, os.Stdout); err != nil {
@@ -125,7 +131,7 @@ func withService(dataFlag string, level zerolog.Level, fn func(*wa.Service) erro
 	return fn(svc)
 }
 
-func serve(ctx context.Context) func(*wa.Service) error {
+func serve(ctx context.Context, httpAddr string) func(*wa.Service) error {
 	return func(svc *wa.Service) error {
 		if svc.LoggedIn() {
 			// Connect in the background so the client gets its tool list immediately
@@ -137,12 +143,38 @@ func serve(ctx context.Context) func(*wa.Service) error {
 		} else {
 			fmt.Fprintln(os.Stderr, "No WhatsApp account linked yet; ask Claude to link it (link_whatsapp) or run `whatsapp-mcp login`.")
 		}
+		if httpAddr != "" {
+			token, err := config.HTTPToken(svc.DataDir(), false)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Serving MCP over HTTP on %s\n  Local URL:  http://%s/mcp/%s\n  Put it behind HTTPS (e.g. cloudflared tunnel --url http://%s) and add\n  https://<public-host>/mcp/%s as a custom connector in claude.ai.\n  Keep this URL secret: it gives full access to your WhatsApp.\n",
+				httpAddr, httpAddr, token, httpAddr, token)
+			return mcpserver.RunHTTP(ctx, svc, version, httpAddr, token)
+		}
 		err := mcpserver.Run(ctx, svc, version)
 		if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || ctx.Err() != nil {
 			return nil // client went away: normal shutdown
 		}
 		return err
 	}
+}
+
+// showToken prints the secret path for `serve --http`.
+func showToken(dataFlag string, rotate bool) error {
+	dir, err := config.DataDir(dataFlag)
+	if err != nil {
+		return err
+	}
+	token, err := config.HTTPToken(dir, rotate)
+	if err != nil {
+		return err
+	}
+	if rotate {
+		fmt.Println("New token created; old connector URLs stop working (restart serve --http).")
+	}
+	fmt.Printf("Token: %s\nConnector URL: https://<public-host>/mcp/%s\nOr send it as \"Authorization: Bearer %s\" to /mcp.\n", token, token, token)
+	return nil
 }
 
 func printSetup(dataDir string) {

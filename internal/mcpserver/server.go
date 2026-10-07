@@ -27,10 +27,14 @@ Always confirm with the user before sending anything.`
 
 // Run serves MCP over stdio until the client disconnects or ctx ends.
 func Run(ctx context.Context, svc *wa.Service, version string) error {
+	return newServer(svc, version).Run(ctx, &mcp.StdioTransport{})
+}
+
+func newServer(svc *wa.Service, version string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "whatsapp", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{svc: svc}
 	t.register(server)
-	return server.Run(ctx, &mcp.StdioTransport{})
+	return server
 }
 
 type tools struct {
