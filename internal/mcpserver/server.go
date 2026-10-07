@@ -19,7 +19,7 @@ import (
 // Images up to this size are returned inline so the model can look at them.
 const inlineImageLimit = 4 << 20
 
-const instructions = `Access to the user's WhatsApp account.
+var instructions = `Access to the user's WhatsApp account.
 Chats are identified by JID (e.g. 15551234567@s.whatsapp.net, 1203...@g.us); most tools also accept a phone number or an exact chat title.
 Messages with attachments show [kind id=...]; pass that id to get_attachment to fetch the file (images are shown to you directly).
 If whatsapp_status shows no linked account, offer to run link_whatsapp and show the user the QR code.
@@ -35,7 +35,12 @@ func newServer(svc *wa.Service, version string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "whatsapp", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{svc: svc}
 	t.register(server)
+	t.registerPrompts(server)
 	return server
+}
+
+func init() {
+	instructions += "\n\nWhen the user asks to start the assistant, watch their WhatsApp, or auto-reply (in any words), that is an explicit request to reply automatically. " + assistantBrief
 }
 
 type tools struct {

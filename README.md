@@ -152,9 +152,12 @@ All commands accept `--data DIR` (or `WHATSAPP_MCP_DATA`).
 
 ### Auto-reply assistant
 
-Claude can watch for new messages and answer them, in Claude Desktop or in claude.ai (through `serve --http`), with no script. Ask, for example:
+Claude can watch for new messages and answer them, in Claude Desktop or in claude.ai (through `serve --http`), with no script. Either:
 
-> Watch my WhatsApp with wait_for_messages and reply on my behalf with send_text, without asking me. Tag the sender in groups for important replies. Decline anything about my computer or accounts. Keep going until I say stop.
+- say **"start the WhatsApp assistant"** (or "watch my WhatsApp", "auto-reply"), or
+- in Claude Desktop, click **+ > whatsapp > WhatsApp assistant** (set `groups` to `no` to skip groups).
+
+It replies to every chat on your behalf without asking, keeps replies short, tags senders in groups for important replies, and declines anything about your computer, accounts or money. Say **"stop"** to end it.
 
 Claude calls `wait_for_messages`, which returns new messages like this:
 
