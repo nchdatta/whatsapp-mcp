@@ -70,7 +70,7 @@ func main() {
 	case "serve":
 		err = withService(*dataFlag, zerolog.InfoLevel, serve(ctx))
 	case "login":
-		err = withService(*dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+		err = withService(*dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
 			if err := svc.Link(ctx, *phone, os.Stdout); err != nil {
 				return err
 			}
@@ -80,7 +80,7 @@ func main() {
 	case "unlink", "logout":
 		err = unlink(ctx, *dataFlag, *deleteData, *yes)
 	case "status":
-		err = withService(*dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+		err = withService(*dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
 			for k, v := range svc.Status() {
 				fmt.Printf("%-10s %v\n", k+":", v)
 			}
@@ -214,7 +214,7 @@ func install(dataFlag string, here bool) error {
 // terminal. It reports whether an account is linked afterwards.
 func offerLink(dataFlag string) (bool, error) {
 	linked := false
-	err := withService(dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+	err := withService(dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
 		if svc.LoggedIn() {
 			fmt.Printf("\nWhatsApp is already linked (+%s).\n", svc.Client.Store.ID.User)
 			linked = true
@@ -276,7 +276,7 @@ func unlink(ctx context.Context, dataFlag string, deleteData, yes bool) error {
 	if err != nil {
 		return err
 	}
-	err = withService(dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+	err = withService(dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
 		if !svc.LoggedIn() {
 			return wa.ErrNotLinked
 		}
