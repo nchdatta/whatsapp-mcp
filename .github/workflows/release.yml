@@ -83,6 +83,6 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/nchdatta/whatsapp-mcp/main/scripts/install.sh | sh
           ```
 
-          Then restart Claude Desktop and ask Claude to "link my WhatsApp".
+          The installer offers to link your WhatsApp (QR code or pairing code). Then restart Claude Desktop.
           EOF
           )"

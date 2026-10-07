@@ -41,17 +41,25 @@ sh scripts/setup.sh
 Both build `bin/whatsapp-mcp` and run `install`.
 </details>
 
-**2. Restart Claude Desktop**
+**2. Link your WhatsApp**
 
-Quit it completely, including from the system tray (Windows) or menu bar (macOS), then start it again. `whatsapp` should appear under **Settings > Developer**.
+At the end of the install, the installer asks:
 
-**3. Link your WhatsApp**
+```
+Link your WhatsApp now?
+  Press Enter to show a QR code, type your phone number (with country code) for a pairing code, or type n to skip:
+```
 
-Ask Claude: *"link my WhatsApp"*. It shows a QR code. Scan it on your phone under **WhatsApp > Settings > Linked devices > Link a device**. It connects right away.
+- **QR code:** press Enter and scan it on your phone under **WhatsApp > Settings > Linked devices > Link a device**. If the terminal draws it badly, open the `link-qr.png` it points to.
+- **Pairing code:** type your number, then enter the 8-character code on your phone under **Link with phone number instead**.
 
-- If the image doesn't show, open `link-qr.png` in the data directory.
-- Prefer a code? Ask *"link my WhatsApp with a pairing code for +1 555 123 4567"*, then enter the code under **Link with phone number instead**.
-- You can also link from a terminal with `whatsapp-mcp login`.
+Keep the window open until it says it's done, so recent history can sync.
+
+Skipped it? Run `whatsapp-mcp login` later, or ask Claude in Claude Desktop to *"link my WhatsApp"*. It shows the QR code in the chat.
+
+**3. Restart Claude Desktop**
+
+Quit it completely, including from the system tray (Windows) or menu bar (macOS), then start it again. `whatsapp` should appear under **Settings > Developer**. Try *"What did the family group talk about today?"*
 
 Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio file as a voice note. Without it, only `.ogg`/`.opus` files can be sent as voice notes; anything can still be sent as a regular file.
 

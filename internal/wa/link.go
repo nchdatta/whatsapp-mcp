@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -16,6 +19,7 @@ import (
 // (or a pairing code when phone is set), then stays connected while the
 // initial history arrives.
 func (s *Service) Link(ctx context.Context, phone string, out io.Writer) error {
+	phone = nonDigits.ReplaceAllString(phone, "")
 	if s.LoggedIn() {
 		return fmt.Errorf("already linked to +%s; run `whatsapp-mcp logout` first to switch accounts", s.Client.Store.ID.User)
 	}
@@ -53,9 +57,17 @@ func (s *Service) Link(ctx context.Context, phone string, out io.Writer) error {
 			codeShown = true
 			fmt.Fprintf(out, "\nOn your phone: WhatsApp > Linked devices > Link a device > Link with phone number instead\nCode: %s\n\n", code)
 		case item.Event == whatsmeow.QRChannelEventCode:
-			fmt.Fprintln(out, "\nScan with WhatsApp > Linked devices > Link a device:")
+			fmt.Fprintln(out, "\nScan with WhatsApp > Settings > Linked devices > Link a device:")
 			qrterminal.GenerateHalfBlock(item.Code, qrterminal.L, out)
+			// Some consoles draw the block characters badly; offer an image too
+			if png, err := qrcode.Encode(item.Code, qrcode.Medium, 384); err == nil {
+				qrFile := filepath.Join(s.dataDir, "link-qr.png")
+				if os.WriteFile(qrFile, png, 0o600) == nil {
+					fmt.Fprintln(out, "Hard to scan? Open", qrFile)
+				}
+			}
 		case item == whatsmeow.QRChannelSuccess:
+			os.Remove(filepath.Join(s.dataDir, "link-qr.png"))
 			fmt.Fprintln(out, "\nLinked. Receiving recent history, keep this open...")
 			return s.waitForQuiet(ctx, activity)
 		case item == whatsmeow.QRChannelTimeout:

@@ -13,8 +13,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
+	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
 
 	"github.com/nchdatta/whatsapp-mcp/internal/config"
@@ -186,18 +188,55 @@ func install(dataFlag string, here bool) error {
 	if err != nil {
 		return err
 	}
-	if !changed {
+	if changed {
+		fmt.Printf("Added to Claude Desktop: %s\n(previous config saved as claude_desktop_config.json.bak)\n", path)
+	} else {
 		fmt.Println("Already installed in Claude Desktop:", path)
-		return nil
 	}
-	fmt.Printf(`Added to Claude Desktop: %s
-(previous config saved as claude_desktop_config.json.bak)
 
-Next:
-  1. Quit Claude Desktop completely (also from the system tray / menu bar) and start it again.
-  2. Ask Claude: "link my WhatsApp" and scan the QR code it shows.
-`, path)
+	linked := false
+	if isatty.IsTerminal(os.Stdin.Fd()) {
+		if linked, err = offerLink(dataFlag); err != nil {
+			fmt.Println("\nLinking failed:", err)
+		}
+	}
+
+	fmt.Println("\nNext:")
+	fmt.Println("  - Quit Claude Desktop completely (also from the system tray / menu bar) and start it again.")
+	if !linked {
+		fmt.Println(`  - Link WhatsApp: run "whatsapp-mcp login", or ask Claude "link my WhatsApp".`)
+	}
 	return nil
+}
+
+// offerLink asks whether to link WhatsApp right away and does it in the
+// terminal. It reports whether an account is linked afterwards.
+func offerLink(dataFlag string) (bool, error) {
+	linked := false
+	err := withService(dataFlag, zerolog.WarnLevel, func(svc *wa.Service) error {
+		if svc.LoggedIn() {
+			fmt.Printf("\nWhatsApp is already linked (+%s).\n", svc.Client.Store.ID.User)
+			linked = true
+			return nil
+		}
+		fmt.Print("\nLink your WhatsApp now?\n  Press Enter to show a QR code, type your phone number (with country code) for a pairing code, or type n to skip: ")
+		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		answer = strings.TrimSpace(answer)
+		if strings.EqualFold(answer, "n") || strings.EqualFold(answer, "no") {
+			return nil
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		if err := svc.Link(ctx, answer, os.Stdout); err != nil {
+			return err
+		}
+		linked = svc.LoggedIn()
+		if linked {
+			fmt.Println("\nWhatsApp linked.")
+		}
+		return nil
+	})
+	return linked, err
 }
 
 func uninstall() error {

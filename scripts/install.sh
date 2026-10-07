@@ -49,7 +49,12 @@ fi
 echo "Checksum OK"
 
 chmod +x "$tmp/$asset"
-"$tmp/$asset" install
+if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then
+  # Under "curl | sh" stdin is the script itself; take answers from the terminal
+  "$tmp/$asset" install </dev/tty
+else
+  "$tmp/$asset" install
+fi
 
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
