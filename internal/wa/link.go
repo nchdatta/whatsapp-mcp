@@ -60,7 +60,7 @@ func (s *Service) Link(ctx context.Context, phone string, out io.Writer) error {
 			fmt.Fprintf(out, "\nOn your phone: WhatsApp > Linked devices > Link a device > Link with phone number instead\nCode: %s\n\n", code)
 		case item.Event == whatsmeow.QRChannelEventCode:
 			fmt.Fprintln(out, "\nScan with WhatsApp > Settings > Linked devices > Link a device:")
-			qrterminal.GenerateHalfBlock(item.Code, qrterminal.L, out)
+			printQR(out, item.Code)
 			// Some consoles draw the block characters badly; offer an image too
 			if png, err := qrcode.Encode(item.Code, qrcode.Medium, 384); err == nil {
 				qrFile := filepath.Join(s.dataDir, "link-qr.png")
@@ -157,4 +157,20 @@ func DeleteLocalData(dataDir string) error {
 		errs = append(errs, secret.Delete(dataDir))
 	}
 	return errors.Join(errs...)
+}
+
+// printQR draws a QR code with half blocks (two modules per character, so
+// modules stay square) and a 1-module border instead of the usual 4, which
+// keeps it small enough for an ordinary terminal window.
+func printQR(out io.Writer, code string) {
+	qrterminal.GenerateWithConfig(code, qrterminal.Config{
+		Level:          qrterminal.L,
+		Writer:         out,
+		HalfBlocks:     true,
+		BlackChar:      qrterminal.BLACK_BLACK,
+		WhiteBlackChar: qrterminal.WHITE_BLACK,
+		WhiteChar:      qrterminal.WHITE_WHITE,
+		BlackWhiteChar: qrterminal.BLACK_WHITE,
+		QuietZone:      1,
+	})
 }
