@@ -11,6 +11,7 @@ import (
 	"github.com/skip2/go-qrcode"
 
 	"github.com/nchdatta/whatsapp-mcp/internal/store"
+	"github.com/nchdatta/whatsapp-mcp/internal/update"
 	"github.com/nchdatta/whatsapp-mcp/internal/wa"
 )
 
@@ -106,7 +107,11 @@ func (t *tools) register(s *mcp.Server) {
 }
 
 func (t *tools) status(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
-	return asJSON(t.svc.Status())
+	st := t.svc.Status()
+	if v := update.Available(t.version); v != "" {
+		st["update"] = fmt.Sprintf("whatsapp-mcp %s is available (this is %s). Tell the user they can update by running: whatsapp-mcp update", v, t.version)
+	}
+	return asJSON(st)
 }
 
 func (t *tools) listChats(ctx context.Context, _ *mcp.CallToolRequest, a listChatsArgs) (*mcp.CallToolResult, any, error) {

@@ -26,7 +26,9 @@ The installer downloads the right build for your system from the [latest release
 
 On Windows you can also download `whatsapp-mcp-windows-amd64.exe` (or `-arm64`) from the release and **double-click it**. Builds exist for Windows, macOS and Linux on both amd64 and arm64.
 
-To update, run the same command again; quit Claude Desktop first. To pin a version, set `WHATSAPP_MCP_VERSION=v1.2.3` before running the installer.
+To update, run `whatsapp-mcp update` (or the install command again). Claude Desktop can stay open; it offers to restart it. Claude also mentions when a new version is out. To pin a version, set `WHATSAPP_MCP_VERSION=v1.2.3` before running the installer.
+
+Something not working? Run `whatsapp-mcp doctor`. It checks the Claude Desktop config, the program, the link and recent errors, and says how to fix each problem.
 
 <details>
 <summary>From source (requires Go)</summary>
@@ -59,7 +61,7 @@ Skipped it? Run `whatsapp-mcp login` later, or ask Claude in Claude Desktop to *
 
 **3. Restart Claude Desktop**
 
-Quit it completely, including from the system tray (Windows) or menu bar (macOS), then start it again. `whatsapp` should appear under **Settings > Developer**. Try *"What did the family group talk about today?"*
+The installer offers to restart (or start) Claude Desktop for you; press Enter. To do it by hand, quit it completely, including from the system tray (Windows) or menu bar (macOS), then start it again. `whatsapp` should appear under **Settings > Developer**. Try *"What did the family group talk about today?"*
 
 Optional: install [ffmpeg](https://ffmpeg.org/download.html) to send any audio file as a voice note. Without it, only `.ogg`/`.opus` files can be sent as voice notes; anything can still be sent as a regular file.
 

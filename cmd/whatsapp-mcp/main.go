@@ -23,6 +23,7 @@ import (
 	"github.com/nchdatta/whatsapp-mcp/internal/config"
 	"github.com/nchdatta/whatsapp-mcp/internal/desktop"
 	"github.com/nchdatta/whatsapp-mcp/internal/mcpserver"
+	"github.com/nchdatta/whatsapp-mcp/internal/update"
 	"github.com/nchdatta/whatsapp-mcp/internal/wa"
 )
 
@@ -32,8 +33,10 @@ var version = "dev"
 const usage = `whatsapp-mcp - WhatsApp for Claude and other MCP clients
 
 Commands:
-  install [--here]         add whatsapp-mcp to Claude Desktop (then restart Claude Desktop)
+  install [--here]         add whatsapp-mcp to Claude Desktop (and restart it)
   uninstall                remove it from Claude Desktop
+  update                   install the latest version
+  doctor                   check the setup and explain how to fix problems
   login [--phone NUMBER]   link your WhatsApp account from a terminal (or ask Claude to link it)
   serve [--http [ADDR]]    run the MCP server on stdio (your MCP client runs this),
                            or over HTTP for remote clients such as claude.ai
@@ -112,6 +115,10 @@ func main() {
 		err = install(*dataFlag, *here)
 	case "uninstall":
 		err = uninstall(ctx, *dataFlag, *yes)
+	case "update":
+		err = runUpdate(ctx, *dataFlag)
+	case "doctor":
+		err = doctor(ctx, *dataFlag)
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -160,6 +167,7 @@ func serve(ctx context.Context, httpAddr string) func(*wa.Service) error {
 			fmt.Fprintln(os.Stderr, "No WhatsApp account linked yet; ask Claude to link it (link_whatsapp) or run `whatsapp-mcp login`.")
 		}
 		go svc.RunAway(ctx)
+		go update.Watch(ctx)
 		if httpAddr != "" {
 			token, err := config.HTTPToken(svc.DataDir(), false)
 			if err != nil {
@@ -302,10 +310,19 @@ func install(dataFlag string, here bool) error {
 		}
 	}
 
-	fmt.Println("\nNext:")
-	fmt.Println("  - Quit Claude Desktop completely (also from the system tray / menu bar) and start it again.")
+	ready := offerRestart()
+
+	if !ready || !linked {
+		fmt.Println("\nNext:")
+	}
+	if !ready {
+		fmt.Println("  - Quit Claude Desktop completely (also from the system tray / menu bar) and start it again.")
+	}
 	if !linked {
 		fmt.Println(`  - Link WhatsApp: run "whatsapp-mcp login", or ask Claude "link my WhatsApp".`)
+	}
+	if ready && linked {
+		fmt.Println("\nAll set. Try asking Claude: \"What did the family group talk about today?\"")
 	}
 	return nil
 }
@@ -445,6 +462,17 @@ func confirm(question string) bool {
 	return answer == "y" || answer == "yes"
 }
 
+// confirmYes is confirm with yes as the default answer.
+func confirmYes(question string) bool {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return false
+	}
+	fmt.Print(question + " [Y/n] ")
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "" || answer == "y" || answer == "yes"
+}
+
 // launchedByDoubleClick reports a no-argument start from Explorer: Windows
 // gives the process its own console, so it is the only process attached.
 func launchedByDoubleClick() bool {
@@ -475,4 +503,30 @@ func parseInterleaved(flags *flag.FlagSet, args []string) []string {
 		positional = append(positional, flags.Arg(0))
 		args = flags.Args()[1:]
 	}
+}
+
+// offerRestart restarts (or starts) Claude Desktop so it loads the new
+// server. It reports whether Claude Desktop is now running it.
+func offerRestart() bool {
+	if !desktop.AppSupported() || !isatty.IsTerminal(os.Stdin.Fd()) {
+		return false
+	}
+	if desktop.AppRunning() {
+		if !confirmYes("\nRestart Claude Desktop now so it loads WhatsApp?") {
+			return false
+		}
+		fmt.Println("Restarting Claude Desktop...")
+		if err := desktop.QuitApp(); err != nil {
+			fmt.Println(err)
+			return false
+		}
+	} else if !confirmYes("\nStart Claude Desktop now?") {
+		return false
+	}
+	if err := desktop.StartApp(); err != nil {
+		fmt.Println(err)
+		return false
+	}
+	fmt.Println("Claude Desktop started. WhatsApp shows under Settings > Developer.")
+	return true
 }

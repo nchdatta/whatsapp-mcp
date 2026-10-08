@@ -10,7 +10,7 @@ import (
 // removeProgram deletes the installed binary and its folder. Windows can't
 // delete a running .exe, so a detached cmd does it once this process exits.
 func removeProgram(bin string) error {
-	script := fmt.Sprintf(`ping -n 3 127.0.0.1 >nul & del /f /q "%s" & rmdir "%s"`, bin, filepath.Dir(bin))
+	script := fmt.Sprintf(`ping -n 3 127.0.0.1 >nul & del /f /q "%s" "%s.old" & rmdir "%s"`, bin, bin, filepath.Dir(bin))
 	cmd := exec.Command("cmd.exe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CmdLine:       `cmd.exe /c "` + script + `"`,

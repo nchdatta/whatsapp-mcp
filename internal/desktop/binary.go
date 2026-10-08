@@ -67,12 +67,21 @@ func Place(dst string) (string, error) {
 		os.Remove(tmp)
 		return "", err
 	}
+	os.Remove(dst + ".old") // left by an earlier update, once nothing runs it
 	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
-		// Windows refuses to replace an executable that is running
+		// Windows refuses to replace a running executable, but lets it be
+		// renamed: move it aside so Claude Desktop picks up the new one on restart
 		if runtime.GOOS == "windows" {
+			if os.Rename(dst, dst+".old") == nil {
+				if os.Rename(tmp, dst) == nil {
+					return dst, nil
+				}
+				os.Rename(dst+".old", dst)
+			}
+			os.Remove(tmp)
 			return "", fmt.Errorf("%w (%v)", ErrInUse, err)
 		}
+		os.Remove(tmp)
 		return "", err
 	}
 	return dst, nil

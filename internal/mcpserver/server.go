@@ -34,14 +34,15 @@ func Run(ctx context.Context, svc *wa.Service, version string) error {
 
 func newServer(svc *wa.Service, version string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "whatsapp", Version: version}, &mcp.ServerOptions{Instructions: instructions})
-	t := &tools{svc: svc}
+	t := &tools{svc: svc, version: version}
 	t.register(server)
 	t.registerPrompts(server)
 	return server
 }
 
 type tools struct {
-	svc *wa.Service
+	svc     *wa.Service
+	version string
 }
 
 // ---- result helpers ----
