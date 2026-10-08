@@ -19,6 +19,11 @@ func (s *Service) onEvent(evt any) {
 		s.ingest(ctx, e, "", true)
 	case *events.HistorySync:
 		s.ingestHistory(ctx, e)
+	case *events.Receipt:
+		// The user read the chat on another device
+		if e.IsFromMe && (e.Type == types.ReceiptTypeRead || e.Type == types.ReceiptTypeReadSelf) {
+			s.History.MarkRead(ctx, e.Chat.String(), e.Timestamp)
+		}
 	case *events.GroupInfo:
 		if e.Name != nil {
 			s.groups.Delete(e.JID.String())
@@ -77,6 +82,10 @@ func (s *Service) ingest(ctx context.Context, e *events.Message, titleHint strin
 		SentAt:     e.Info.Timestamp,
 		Body:       body,
 	}
+	if ci := contextInfo(e.Message); ci.GetStanzaID() != "" {
+		m.QuotedID, m.QuotedSender = ci.GetStanzaID(), ci.GetParticipant()
+		m.QuotedBody = summary(ci.GetQuotedMessage())
+	}
 	if media != nil {
 		m.MediaKind, m.MediaMime, m.MediaName, m.MediaSize, m.MediaRef =
 			media.kind, media.mime, media.name, int64(media.size), media.ref
@@ -117,6 +126,7 @@ func (s *Service) ingestHistory(ctx context.Context, e *events.HistorySync) {
 			s.ingest(ctx, evt, title, false)
 			stored++
 		}
+		s.History.KeepUnread(ctx, chat.String(), int(conv.GetUnreadCount()))
 	}
 	s.log.Info().Int("conversations", len(e.Data.GetConversations())).Int("messages", stored).Msg("History sync")
 }
@@ -183,4 +193,34 @@ func pollText(p *waE2E.PollCreationMessage) string {
 		opts = append(opts, o.GetOptionName())
 	}
 	return fmt.Sprintf("[poll] %s (%s)", p.GetName(), strings.Join(opts, " / "))
+}
+
+// contextInfo returns the reply/mention context of a message, if any.
+func contextInfo(m *waE2E.Message) *waE2E.ContextInfo {
+	switch {
+	case m.GetExtendedTextMessage() != nil:
+		return m.GetExtendedTextMessage().GetContextInfo()
+	case m.GetImageMessage() != nil:
+		return m.GetImageMessage().GetContextInfo()
+	case m.GetVideoMessage() != nil:
+		return m.GetVideoMessage().GetContextInfo()
+	case m.GetAudioMessage() != nil:
+		return m.GetAudioMessage().GetContextInfo()
+	case m.GetDocumentMessage() != nil:
+		return m.GetDocumentMessage().GetContextInfo()
+	case m.GetDocumentWithCaptionMessage() != nil:
+		return contextInfo(m.GetDocumentWithCaptionMessage().GetMessage())
+	case m.GetStickerMessage() != nil:
+		return m.GetStickerMessage().GetContextInfo()
+	}
+	return nil
+}
+
+// summary is a one-line description of a message, e.g. for a quoted reply.
+func summary(m *waE2E.Message) string {
+	body, media := describe(m)
+	if media != nil {
+		body = strings.TrimSpace("[" + media.kind + "] " + body)
+	}
+	return body
 }

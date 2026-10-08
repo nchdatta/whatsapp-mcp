@@ -20,6 +20,7 @@ type (
 	listChatsArgs struct {
 		Query      string `json:"query,omitempty" jsonschema:"Only chats whose title or JID contains this"`
 		GroupsOnly *bool  `json:"groups_only,omitempty" jsonschema:"true: only groups; false: only direct chats; omit for both"`
+		UnreadOnly bool   `json:"unread_only,omitempty" jsonschema:"Only chats with unread messages"`
 		Limit      int    `json:"limit,omitempty" jsonschema:"Max chats (default 25, max 200)"`
 		Offset     int    `json:"offset,omitempty" jsonschema:"Skip this many chats, for paging"`
 	}
@@ -52,8 +53,9 @@ type (
 	}
 
 	sendTextArgs struct {
-		To   string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or contact or chat name"`
-		Text string `json:"text" jsonschema:"Message text. Write @<phone number>, or the [tag: @...] value from wait_for_messages, to mention someone in a group"`
+		To      string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or contact or chat name"`
+		Text    string `json:"text" jsonschema:"Message text. Write @<phone number>, or the [tag: @...] value from wait_for_messages, to mention someone in a group"`
+		ReplyTo string `json:"reply_to,omitempty" jsonschema:"ID of a message in that chat to reply to (quoted), without the #"`
 	}
 
 	sendFileArgs struct {
@@ -69,6 +71,10 @@ type (
 
 	unlinkArgs struct {
 		Confirm bool `json:"confirm,omitempty" jsonschema:"Must be true. Only set it after the user explicitly confirmed they want to unlink"`
+	}
+
+	markReadArgs struct {
+		Chat string `json:"chat" jsonschema:"Chat JID, phone number, or contact or chat name"`
 	}
 
 	attachmentArgs struct {
@@ -87,14 +93,15 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "whatsapp_status", Description: "Show whether a WhatsApp account is linked and connected.", Annotations: readOnly}, t.status)
 	mcp.AddTool(s, &mcp.Tool{Name: "link_whatsapp", Description: "Link a WhatsApp account when none is linked. Returns a QR code image to scan in WhatsApp (Linked devices > Link a device), or a pairing code when phone is given. Codes expire in about 20 seconds; call again for a fresh one, then whatsapp_status to confirm.", Annotations: &mcp.ToolAnnotations{DestructiveHint: &no}}, t.link)
 	mcp.AddTool(s, &mcp.Tool{Name: "unlink_whatsapp", Description: "Unlink the WhatsApp account from this computer (removes it from Linked devices on the phone). Local message history is kept. Ask the user to confirm first."}, t.unlink)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with a preview of the last message.", Annotations: readOnly}, t.listChats)
+	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with unread counts and a preview of the last message. unread_only answers \"anything new?\".", Annotations: readOnly}, t.listChats)
 	mcp.AddTool(s, &mcp.Tool{Name: "read_chat", Description: "Read the latest messages of one chat, oldest first.", Annotations: readOnly}, t.readChat)
 	mcp.AddTool(s, &mcp.Tool{Name: "search_messages", Description: "Search messages across all chats by text, chat, sender, date range or attachments. Newest first.", Annotations: readOnly}, t.search)
 	mcp.AddTool(s, &mcp.Tool{Name: "message_context", Description: "Show the conversation around a specific message.", Annotations: readOnly}, t.messageContext)
 	mcp.AddTool(s, &mcp.Tool{Name: "find_contacts", Description: "Find people by name or phone number in the address book and chat history.", Annotations: readOnly}, t.findContacts)
 	mcp.AddTool(s, &mcp.Tool{Name: "wait_for_messages", Description: "Wait for new incoming messages (checks every 3 seconds) and return them with their chat JIDs. Returns a cursor; call again with it to keep watching.", Annotations: readOnly}, t.waitForMessages)
-	mcp.AddTool(s, &mcp.Tool{Name: "send_text", Description: "Send a text message as the user. Needs the user's permission."}, t.sendText)
+	mcp.AddTool(s, &mcp.Tool{Name: "send_text", Description: "Send a text message as the user, optionally as a reply to a message (reply_to). Needs the user's permission."}, t.sendText)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_file", Description: "Send a local file: image, video, audio, voice note or any document. Confirm with the user first."}, t.sendFile)
+	mcp.AddTool(s, &mcp.Tool{Name: "mark_read", Description: "Mark a chat's unread messages as read. Senders see blue ticks if read receipts are on, so only do this when the user asks or agrees.", Annotations: &mcp.ToolAnnotations{DestructiveHint: &no, IdempotentHint: true}}, t.markRead)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_attachment", Description: "Download a message's attachment and return the path of a readable copy (attachments are stored encrypted). Images are also returned for you to view.", Annotations: readOnly}, t.attachment)
 }
 
@@ -103,7 +110,7 @@ func (t *tools) status(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*
 }
 
 func (t *tools) listChats(ctx context.Context, _ *mcp.CallToolRequest, a listChatsArgs) (*mcp.CallToolResult, any, error) {
-	chats, err := t.svc.History.Chats(ctx, a.Query, a.GroupsOnly, clamp(a.Limit, 25, 200), max(a.Offset, 0))
+	chats, err := t.svc.History.Chats(ctx, store.ChatFilter{Query: a.Query, GroupsOnly: a.GroupsOnly, UnreadOnly: a.UnreadOnly, Limit: clamp(a.Limit, 25, 200), Offset: max(a.Offset, 0)})
 	if err != nil {
 		return fail(err)
 	}
@@ -119,6 +126,9 @@ func (t *tools) listChats(ctx context.Context, _ *mcp.CallToolRequest, a listCha
 		fmt.Fprintf(&b, "%s [%s]", title, c.JID)
 		if c.IsGroup {
 			b.WriteString(" group")
+		}
+		if c.Unread > 0 {
+			fmt.Fprintf(&b, " · %d unread", c.Unread)
 		}
 		if !c.LastActivity.IsZero() {
 			b.WriteString(" · " + c.LastActivity.Local().Format("2006-01-02 15:04"))
@@ -220,7 +230,7 @@ func (t *tools) sendText(ctx context.Context, _ *mcp.CallToolRequest, a sendText
 	if a.Text == "" {
 		return fail(fmt.Errorf("text is empty"))
 	}
-	id, err := t.svc.SendText(ctx, a.To, a.Text)
+	id, err := t.svc.SendText(ctx, a.To, a.Text, a.ReplyTo)
 	if err != nil {
 		return fail(err)
 	}
@@ -306,4 +316,15 @@ func (t *tools) unlink(ctx context.Context, _ *mcp.CallToolRequest, a unlinkArgs
 		return ok("Removed the local session, but WhatsApp couldn't be reached. Tell the user to remove this computer under WhatsApp > Settings > Linked devices if it's still listed. Local message history is kept.")
 	}
 	return ok("Unlinked. This computer is no longer a linked device. Local message history is kept; link_whatsapp links an account again.")
+}
+
+func (t *tools) markRead(ctx context.Context, _ *mcp.CallToolRequest, a markReadArgs) (*mcp.CallToolResult, any, error) {
+	n, err := t.svc.MarkChatRead(ctx, a.Chat)
+	if err != nil {
+		return fail(err)
+	}
+	if n == 0 {
+		return ok("No unread messages.")
+	}
+	return ok(fmt.Sprintf("Marked %d messages as read.", n))
 }

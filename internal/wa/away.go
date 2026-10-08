@@ -82,7 +82,7 @@ func (s *Service) RunAway(ctx context.Context) {
 			if err := s.History.MarkAwaySent(ctx, chat, now); err != nil {
 				continue
 			}
-			if _, err := s.SendText(ctx, chat, a.Message); err != nil {
+			if _, err := s.SendText(ctx, chat, a.Message, ""); err != nil {
 				s.log.Warn().Err(err).Str("chat", chat).Msg("Sending away reply failed")
 				continue
 			}

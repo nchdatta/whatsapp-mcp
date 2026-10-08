@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -98,7 +99,8 @@ func (s *Service) mentionTarget(ctx context.Context, g *groupMeta, num string) t
 }
 
 // SendText sends a text message and records it in the local history.
-func (s *Service) SendText(ctx context.Context, to, text string) (string, error) {
+// replyTo, if set, is the ID of a message in that chat to quote.
+func (s *Service) SendText(ctx context.Context, to, text, replyTo string) (string, error) {
 	if err := s.Online(ctx); err != nil {
 		return "", err
 	}
@@ -107,16 +109,39 @@ func (s *Service) SendText(ctx context.Context, to, text string) (string, error)
 		return "", err
 	}
 	body, mentions := s.withMentions(ctx, chat, text)
+	record := &store.Message{Body: body}
 	msg := &waE2E.Message{}
+	var ci *waE2E.ContextInfo
 	if len(mentions) > 0 {
-		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-			Text:        proto.String(body),
-			ContextInfo: &waE2E.ContextInfo{MentionedJID: mentions},
+		ci = &waE2E.ContextInfo{MentionedJID: mentions}
+	}
+	if replyTo != "" {
+		quoted, err := s.History.Message(ctx, chat.String(), replyTo)
+		if err != nil {
+			return "", fmt.Errorf("reply_to: message %s in %s: %w", replyTo, chat, err)
 		}
+		if ci == nil {
+			ci = &waE2E.ContextInfo{}
+		}
+		sender := quoted.SenderJID
+		if quoted.FromMe && s.Client.Store.ID != nil {
+			sender = s.Client.Store.ID.ToNonAD().String()
+		}
+		quotedText := quoted.Body
+		if quotedText == "" && quoted.MediaKind != "" {
+			quotedText = "[" + quoted.MediaKind + "]"
+		}
+		ci.StanzaID = proto.String(quoted.ID)
+		ci.Participant = proto.String(sender)
+		ci.QuotedMessage = &waE2E.Message{Conversation: proto.String(quotedText)}
+		record.QuotedID, record.QuotedSender, record.QuotedBody = quoted.ID, sender, quotedText
+	}
+	if ci != nil {
+		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{Text: proto.String(body), ContextInfo: ci}
 	} else {
 		msg.Conversation = proto.String(body)
 	}
-	return s.send(ctx, chat, msg, &store.Message{Body: body})
+	return s.send(ctx, chat, msg, record)
 }
 
 // SendFile uploads and sends a file. Images, videos and audio are sent as
@@ -227,6 +252,7 @@ func (s *Service) send(ctx context.Context, chat types.JID, msg *waE2E.Message, 
 		record.SenderJID = s.Client.Store.ID.ToNonAD().String()
 	}
 	s.History.PutChat(ctx, chat.String(), "", chat.Server == types.GroupServer, resp.Timestamp)
+	s.History.MarkRead(ctx, chat.String(), resp.Timestamp) // replying reads the chat, as in WhatsApp
 	if err := s.History.PutMessage(ctx, record); err != nil {
 		s.log.Warn().Err(err).Msg("Recording sent message failed")
 	}
@@ -238,4 +264,42 @@ func optional(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// MarkChatRead marks a chat's unread messages as read, here and on WhatsApp
+// (the senders see blue ticks if read receipts are on). It returns how many
+// messages were unread.
+func (s *Service) MarkChatRead(ctx context.Context, chatRef string) (int, error) {
+	jid, err := s.ResolveChat(ctx, chatRef)
+	if err != nil {
+		return 0, err
+	}
+	unread, err := s.History.Unread(ctx, jid, 1000)
+	if err != nil || len(unread) == 0 {
+		return 0, err
+	}
+	if err := s.Online(ctx); err != nil {
+		return 0, err
+	}
+	chat, err := types.ParseJID(jid)
+	if err != nil {
+		return 0, err
+	}
+	// Receipts go out per sender
+	bySender := map[string][]types.MessageID{}
+	for _, m := range unread {
+		bySender[m.SenderJID] = append(bySender[m.SenderJID], m.ID)
+	}
+	for sender, ids := range bySender {
+		var from types.JID
+		if chat.Server == types.GroupServer {
+			if from, err = types.ParseJID(sender); err != nil {
+				continue
+			}
+		}
+		if err := s.Client.MarkRead(ctx, ids, time.Now(), chat, from); err != nil {
+			return 0, fmt.Errorf("sending read receipts: %w", err)
+		}
+	}
+	return len(unread), s.History.MarkRead(ctx, jid, unread[len(unread)-1].SentAt)
 }

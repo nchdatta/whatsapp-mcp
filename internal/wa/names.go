@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
+
+	"github.com/nchdatta/whatsapp-mcp/internal/store"
 )
 
 type groupMeta struct {
@@ -160,7 +162,7 @@ func (s *Service) ResolveChat(ctx context.Context, ref string) (string, error) {
 // chatByName finds the one chat or contact a name refers to: an exact chat
 // title first, then partial chat titles and address book names.
 func (s *Service) chatByName(ctx context.Context, name string) (string, error) {
-	chats, err := s.History.Chats(ctx, name, nil, 20, 0)
+	chats, err := s.History.Chats(ctx, store.ChatFilter{Query: name, Limit: 20})
 	if err != nil {
 		return "", err
 	}
@@ -273,7 +275,7 @@ func (s *Service) FindContacts(ctx context.Context, query string, limit int) ([]
 	}
 
 	isGroup := false
-	chats, err := s.History.Chats(ctx, "", &isGroup, 1000, 0)
+	chats, err := s.History.Chats(ctx, store.ChatFilter{GroupsOnly: &isGroup, Limit: 1000})
 	if err != nil {
 		return nil, err
 	}

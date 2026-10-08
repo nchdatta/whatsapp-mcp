@@ -92,6 +92,9 @@ func (t *tools) watchLine(ctx context.Context, m store.Message) string {
 		}
 		group = " in " + title
 	}
+	if m.QuotedID != "" {
+		body = fmt.Sprintf("(replying to %s: %q) %s", t.svc.DisplayName(ctx, m.QuotedSender, ""), oneLine(m.QuotedBody, 60), body)
+	}
 	mention, _, _ := strings.Cut(m.SenderJID, "@")
 	return fmt.Sprintf("%s%s - %s: %s  [chat: %s] [id: %s] [tag: @%s]",
 		t.svc.DisplayName(ctx, m.SenderJID, m.SenderName), group,

@@ -29,7 +29,7 @@ func TestDatabaseIsEncrypted(t *testing.T) {
 		// Opening succeeds lazily; reading must fail
 		s2, _ := Open(ctx, dir, strings.Repeat("ff", 32))
 		if s2 != nil {
-			if _, err := s2.Chats(ctx, "", nil, 10, 0); err == nil {
+			if _, err := s2.Chats(ctx, ChatFilter{Limit: 10}); err == nil {
 				t.Fatal("read with the wrong key")
 			}
 			s2.Close()

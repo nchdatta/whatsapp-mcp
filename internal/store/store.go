@@ -84,7 +84,42 @@ func Open(ctx context.Context, dataDir, keyHex string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
+	if err := migrate(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrade schema: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrations add columns introduced after the first release. Each runs once,
+// when its column is missing, followed by its optional backfill.
+var migrations = []struct{ table, column, def, backfill string }{
+	{"message", "quoted_id", `TEXT NOT NULL DEFAULT ''`, ""},
+	{"message", "quoted_sender", `TEXT NOT NULL DEFAULT ''`, ""},
+	{"message", "quoted_body", `TEXT NOT NULL DEFAULT ''`, ""},
+	// Existing history counts as read, so upgrading doesn't flag every chat
+	{"chat", "last_read", `INTEGER NOT NULL DEFAULT 0`, `UPDATE chat SET last_read = last_activity`},
+}
+
+func migrate(ctx context.Context, db *sql.DB) error {
+	for _, m := range migrations {
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, m.table, m.column).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, m.table, m.column, m.def)); err != nil {
+			return err
+		}
+		if m.backfill != "" {
+			if _, err := db.ExecContext(ctx, m.backfill); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -98,6 +133,7 @@ type Chat struct {
 	IsGroup      bool      `json:"is_group"`
 	LastActivity time.Time `json:"last_activity"`
 	Preview      string    `json:"last_message,omitempty"`
+	Unread       int       `json:"unread,omitempty"`
 }
 
 // PutChat records a chat. An empty title never replaces a known one, and
@@ -110,6 +146,30 @@ func (s *Store) PutChat(ctx context.Context, jid, title string, isGroup bool, ac
 			last_activity = MAX(chat.last_activity, excluded.last_activity)`,
 		jid, title, isGroup, unix(activity))
 	return err
+}
+
+// MarkRead records that the chat was read up to t. It never moves back.
+func (s *Store) MarkRead(ctx context.Context, jid string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE chat SET last_read = MAX(last_read, ?) WHERE jid = ?`, unix(t), jid)
+	return err
+}
+
+// KeepUnread marks a chat read except for its last n incoming messages, to
+// match the unread count the phone reports.
+func (s *Store) KeepUnread(ctx context.Context, jid string, n int) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE chat SET last_read = MAX(last_read, COALESCE(
+			(SELECT sent_at FROM message WHERE chat_jid = ? AND from_me = 0
+			 ORDER BY sent_at DESC LIMIT 1 OFFSET ?) - (? > 0), 0))
+		WHERE jid = ?`, jid, max(n-1, 0), n, jid)
+	return err
+}
+
+// Unread returns the chat's unread incoming messages, oldest first.
+func (s *Store) Unread(ctx context.Context, jid string, limit int) ([]Message, error) {
+	return s.queryMessages(ctx, messageSelect+`
+		WHERE m.chat_jid = ? AND m.from_me = 0 AND m.sent_at > c.last_read
+		ORDER BY m.sent_at, m.seq LIMIT ?`, jid, limit)
 }
 
 // SetChatTitle replaces a chat's title (e.g. after a group rename).
@@ -127,21 +187,24 @@ func (s *Store) ChatTitle(ctx context.Context, jid string) string {
 
 // Message is one stored message.
 type Message struct {
-	Seq        int64     `json:"-"`
-	ChatJID    string    `json:"chat_jid"`
-	ChatTitle  string    `json:"chat_title,omitempty"`
-	ID         string    `json:"id"`
-	SenderJID  string    `json:"sender_jid"`
-	SenderName string    `json:"sender_name,omitempty"`
-	FromMe     bool      `json:"from_me"`
-	SentAt     time.Time `json:"sent_at"`
-	Body       string    `json:"body,omitempty"`
-	MediaKind  string    `json:"media_kind,omitempty"`
-	MediaMime  string    `json:"media_mime,omitempty"`
-	MediaName  string    `json:"media_name,omitempty"`
-	MediaSize  int64     `json:"media_size,omitempty"`
-	MediaRef   []byte    `json:"-"`
-	MediaFile  string    `json:"media_file,omitempty"`
+	Seq          int64     `json:"-"`
+	ChatJID      string    `json:"chat_jid"`
+	ChatTitle    string    `json:"chat_title,omitempty"`
+	ID           string    `json:"id"`
+	SenderJID    string    `json:"sender_jid"`
+	SenderName   string    `json:"sender_name,omitempty"`
+	FromMe       bool      `json:"from_me"`
+	SentAt       time.Time `json:"sent_at"`
+	Body         string    `json:"body,omitempty"`
+	MediaKind    string    `json:"media_kind,omitempty"`
+	MediaMime    string    `json:"media_mime,omitempty"`
+	MediaName    string    `json:"media_name,omitempty"`
+	MediaSize    int64     `json:"media_size,omitempty"`
+	MediaRef     []byte    `json:"-"`
+	MediaFile    string    `json:"media_file,omitempty"`
+	QuotedID     string    `json:"quoted_id,omitempty"` // the message this one replies to
+	QuotedSender string    `json:"quoted_sender,omitempty"`
+	QuotedBody   string    `json:"quoted_body,omitempty"`
 }
 
 // PutMessage inserts or refreshes a message. Its seq and any saved media file
@@ -149,8 +212,9 @@ type Message struct {
 func (s *Store) PutMessage(ctx context.Context, m *Message) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO message (chat_jid, msg_id, sender_jid, sender_name, from_me, sent_at, body,
-			media_kind, media_mime, media_name, media_size, media_ref, media_file)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			media_kind, media_mime, media_name, media_size, media_ref, media_file,
+			quoted_id, quoted_sender, quoted_body)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (chat_jid, msg_id) DO UPDATE SET
 			sender_jid  = excluded.sender_jid,
 			sender_name = CASE WHEN excluded.sender_name <> '' THEN excluded.sender_name ELSE message.sender_name END,
@@ -160,9 +224,13 @@ func (s *Store) PutMessage(ctx context.Context, m *Message) error {
 			media_name  = excluded.media_name,
 			media_size  = excluded.media_size,
 			media_ref   = COALESCE(excluded.media_ref, message.media_ref),
-			media_file  = CASE WHEN message.media_file <> '' THEN message.media_file ELSE excluded.media_file END`,
+			media_file  = CASE WHEN message.media_file <> '' THEN message.media_file ELSE excluded.media_file END,
+			quoted_id     = CASE WHEN excluded.quoted_id <> '' THEN excluded.quoted_id ELSE message.quoted_id END,
+			quoted_sender = CASE WHEN excluded.quoted_id <> '' THEN excluded.quoted_sender ELSE message.quoted_sender END,
+			quoted_body   = CASE WHEN excluded.quoted_id <> '' THEN excluded.quoted_body ELSE message.quoted_body END`,
 		m.ChatJID, m.ID, m.SenderJID, m.SenderName, m.FromMe, unix(m.SentAt), m.Body,
-		m.MediaKind, m.MediaMime, m.MediaName, m.MediaSize, m.MediaRef, m.MediaFile)
+		m.MediaKind, m.MediaMime, m.MediaName, m.MediaSize, m.MediaRef, m.MediaFile,
+		m.QuotedID, m.QuotedSender, m.QuotedBody)
 	return err
 }
 
@@ -186,22 +254,35 @@ var ErrNotFound = errors.New("not found")
 const chatSelect = `
 	SELECT c.jid, c.title, c.is_group, c.last_activity,
 		COALESCE((SELECT CASE WHEN m.body <> '' THEN m.body ELSE '[' || m.media_kind || ']' END
-		          FROM message m WHERE m.chat_jid = c.jid ORDER BY m.sent_at DESC, m.seq DESC LIMIT 1), '')
+		          FROM message m WHERE m.chat_jid = c.jid ORDER BY m.sent_at DESC, m.seq DESC LIMIT 1), ''),
+		(SELECT COUNT(*) FROM message m WHERE m.chat_jid = c.jid AND m.from_me = 0 AND m.sent_at > c.last_read)
 	FROM chat c`
 
 func scanChat(row interface{ Scan(...any) error }) (Chat, error) {
 	var c Chat
 	var activity int64
-	err := row.Scan(&c.JID, &c.Title, &c.IsGroup, &activity, &c.Preview)
+	err := row.Scan(&c.JID, &c.Title, &c.IsGroup, &activity, &c.Preview, &c.Unread)
 	c.LastActivity = fromUnix(activity)
 	return c, err
 }
 
-// Chats lists chats, most recently active first, optionally filtered by a
-// substring of the title or JID.
-func (s *Store) Chats(ctx context.Context, query string, groupsOnly *bool, limit, offset int) ([]Chat, error) {
+// ChatFilter narrows a chat listing. Zero values mean "no filter".
+type ChatFilter struct {
+	Query      string // substring of the title or JID
+	GroupsOnly *bool  // true: groups, false: direct chats
+	UnreadOnly bool
+	Limit      int
+	Offset     int
+}
+
+// Chats lists chats, most recently active first.
+func (s *Store) Chats(ctx context.Context, f ChatFilter) ([]Chat, error) {
+	query, groupsOnly := f.Query, f.GroupsOnly
 	var where []string
 	var args []any
+	if f.UnreadOnly {
+		where = append(where, `EXISTS (SELECT 1 FROM message m WHERE m.chat_jid = c.jid AND m.from_me = 0 AND m.sent_at > c.last_read)`)
+	}
 	if query != "" {
 		where = append(where, `(c.title LIKE ? ESCAPE '\' OR c.jid LIKE ? ESCAPE '\')`)
 		args = append(args, like(query), like(query))
@@ -215,7 +296,7 @@ func (s *Store) Chats(ctx context.Context, query string, groupsOnly *bool, limit
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
 	q += ` ORDER BY c.last_activity DESC LIMIT ? OFFSET ?`
-	args = append(args, limit, offset)
+	args = append(args, f.Limit, f.Offset)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -244,14 +325,16 @@ func (s *Store) Chat(ctx context.Context, jid string) (Chat, error) {
 
 const messageSelect = `
 	SELECT m.seq, m.chat_jid, COALESCE(c.title, ''), m.msg_id, m.sender_jid, m.sender_name, m.from_me,
-		m.sent_at, m.body, m.media_kind, m.media_mime, m.media_name, m.media_size, m.media_ref, m.media_file
+		m.sent_at, m.body, m.media_kind, m.media_mime, m.media_name, m.media_size, m.media_ref, m.media_file,
+		m.quoted_id, m.quoted_sender, m.quoted_body
 	FROM message m LEFT JOIN chat c ON c.jid = m.chat_jid`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var sent int64
 	err := row.Scan(&m.Seq, &m.ChatJID, &m.ChatTitle, &m.ID, &m.SenderJID, &m.SenderName, &m.FromMe,
-		&sent, &m.Body, &m.MediaKind, &m.MediaMime, &m.MediaName, &m.MediaSize, &m.MediaRef, &m.MediaFile)
+		&sent, &m.Body, &m.MediaKind, &m.MediaMime, &m.MediaName, &m.MediaSize, &m.MediaRef, &m.MediaFile,
+		&m.QuotedID, &m.QuotedSender, &m.QuotedBody)
 	m.SentAt = fromUnix(sent)
 	return m, err
 }
