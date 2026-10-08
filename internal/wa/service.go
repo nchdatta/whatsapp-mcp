@@ -33,6 +33,8 @@ type Service struct {
 	log       zerolog.Logger
 	container *sqlstore.Container
 
+	connectMu sync.Mutex
+
 	viewMu  sync.Mutex
 	viewDir string // decrypted copies of attachments, removed on Close
 
@@ -115,6 +117,9 @@ func (s *Service) Online(ctx context.Context) error {
 	if !s.LoggedIn() {
 		return ErrNotLoggedIn
 	}
+	if !s.Client.IsConnected() {
+		s.connect()
+	}
 	deadline := time.Now().Add(15 * time.Second)
 	for !s.Client.IsLoggedIn() {
 		if time.Now().After(deadline) {
@@ -127,6 +132,21 @@ func (s *Service) Online(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// connect (re)connects to WhatsApp. Claude Desktop sometimes runs two copies
+// of the server; whichever connects last takes the session and the other goes
+// offline, so a copy that needs the network takes it back here.
+func (s *Service) connect() {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+	if s.Client.IsConnected() {
+		return
+	}
+	s.log.Info().Msg("Connecting to WhatsApp")
+	if err := s.Client.Connect(); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		s.log.Warn().Err(err).Msg("Connecting failed")
+	}
 }
 
 // Status summarises the connection for humans.

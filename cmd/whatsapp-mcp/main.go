@@ -106,7 +106,11 @@ func main() {
 		err = unlink(ctx, *dataFlag, *deleteData, *yes)
 	case "status":
 		err = withService(*dataFlag, zerolog.ErrorLevel, func(svc *wa.Service) error {
-			for k, v := range svc.Status() {
+			st := svc.Status()
+			// This command doesn't connect (that would take the session from Claude),
+			// so it can't tell; doctor shows the last connection instead
+			delete(st, "connected")
+			for k, v := range st {
 				fmt.Printf("%-10s %v\n", k+":", v)
 			}
 			return nil

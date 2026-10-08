@@ -107,6 +107,9 @@ func (t *tools) register(s *mcp.Server) {
 }
 
 func (t *tools) status(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
+	if t.svc.LoggedIn() && !t.svc.Client.IsLoggedIn() {
+		t.svc.Online(ctx) // reconnect, e.g. after another copy took the session; Status reports the result
+	}
 	st := t.svc.Status()
 	if v := update.Available(t.version); v != "" {
 		st["update"] = fmt.Sprintf("whatsapp-mcp %s is available (this is %s). Tell the user they can update by running: whatsapp-mcp update", v, t.version)

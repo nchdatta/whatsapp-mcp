@@ -37,7 +37,7 @@ func (s *Service) onEvent(evt any) {
 		s.forget()
 		s.log.Error().Str("reason", e.Reason.String()).Msg("This device was unlinked; run `whatsapp-mcp login` again")
 	case *events.StreamReplaced:
-		s.log.Warn().Msg("Another process connected with this session, so this one went offline. Run only one whatsapp-mcp per data directory")
+		s.log.Info().Msg("Another copy of whatsapp-mcp took the WhatsApp connection; this one reconnects when a tool needs it")
 	}
 }
 
