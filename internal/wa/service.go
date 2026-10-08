@@ -1,4 +1,4 @@
-// Package wa wraps the whatsmeow client: it keeps the local history in sync
+// Package wa wraps the WhatsApp client: it keeps the local history in sync
 // and exposes the operations the MCP tools need.
 package wa
 
@@ -12,8 +12,11 @@ import (
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/nchdatta/whatsapp-mcp/internal/secret"
 	"github.com/nchdatta/whatsapp-mcp/internal/store"
@@ -73,6 +76,10 @@ func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, er
 		container.Close()
 		return nil, fmt.Errorf("open history: %w", err)
 	}
+
+	// The name shown under Linked devices on the phone
+	waStore.DeviceProps.Os = proto.String("whatsapp-mcp")
+	waStore.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
 
 	s := &Service{
 		Client:    whatsmeow.NewClient(device, quietLog{waLog.Zerolog(log.With().Str("module", "whatsapp").Logger())}),
