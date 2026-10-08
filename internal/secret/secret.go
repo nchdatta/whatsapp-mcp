@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 )
 
 // Keys are the keys derived from the master key.
@@ -141,8 +140,5 @@ func IsSealedFile(path string) bool {
 	_, err = io.ReadFull(f, head)
 	return err == nil && bytes.Equal(head, fileMagic)
 }
-
-// keyFile is where the protected master key lives on Windows and Linux.
-func keyFile(dataDir string) string { return filepath.Join(dataDir, "key") }
 
 var errNoKey = errors.New("no key")

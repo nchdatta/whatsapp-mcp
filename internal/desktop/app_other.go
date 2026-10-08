@@ -4,7 +4,7 @@ package desktop
 
 import "errors"
 
-var errNoApp = errors.New("Claude Desktop isn't available on this system")
+var errNoApp = errors.New("this system has no Claude Desktop")
 
 // AppSupported reports whether this system can run Claude Desktop.
 func AppSupported() bool { return false }

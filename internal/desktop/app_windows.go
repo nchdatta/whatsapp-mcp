@@ -30,7 +30,7 @@ func QuitApp() error {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if AppRunning() {
-		return fmt.Errorf("Claude Desktop didn't close; quit it from the system tray")
+		return fmt.Errorf("couldn't close Claude Desktop; quit it from the system tray")
 	}
 	return nil
 }

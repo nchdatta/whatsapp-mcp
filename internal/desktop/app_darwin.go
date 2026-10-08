@@ -24,7 +24,7 @@ func QuitApp() error {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if AppRunning() {
-		return fmt.Errorf("Claude Desktop didn't quit; quit it from the menu bar")
+		return fmt.Errorf("couldn't quit Claude Desktop; quit it from the menu bar")
 	}
 	return nil
 }
