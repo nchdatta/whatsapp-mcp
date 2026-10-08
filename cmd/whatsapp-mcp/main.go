@@ -363,7 +363,11 @@ func uninstall(ctx context.Context, dataFlag string, yes bool) error {
 	if bin, err := desktop.BinaryPath(); err == nil {
 		desktop.RemoveFromUserPath(filepath.Dir(bin))
 		if _, err := os.Stat(bin); err == nil {
-			fmt.Println("To remove the program itself, delete:", bin)
+			if err := removeProgram(bin); err != nil {
+				fmt.Println("To remove the program itself, delete:", bin)
+			} else {
+				fmt.Println("Removed the program:", bin)
+			}
 		}
 	}
 	return nil
