@@ -22,7 +22,7 @@ import (
 var nonDigits = regexp.MustCompile(`[^\d]`)
 
 // Recipient resolves "to" into a chat JID. It accepts a JID, a phone number in
-// any common format, or the exact title of a known chat.
+// any common format, or a contact or chat name.
 func (s *Service) Recipient(ctx context.Context, to string) (types.JID, error) {
 	to = strings.TrimSpace(to)
 	if to == "" {
@@ -43,24 +43,11 @@ func (s *Service) Recipient(ctx context.Context, to string) (types.JID, error) {
 		return res[0].JID, nil
 	}
 
-	chats, err := s.History.Chats(ctx, to, nil, 20, 0)
+	jid, err := s.chatByName(ctx, to)
 	if err != nil {
 		return types.JID{}, err
 	}
-	var matches []store.Chat
-	for _, c := range chats {
-		if strings.EqualFold(c.Title, to) {
-			matches = append(matches, c)
-		}
-	}
-	switch len(matches) {
-	case 1:
-		return types.ParseJID(matches[0].JID)
-	case 0:
-		return types.JID{}, fmt.Errorf("no chat named %q; use a phone number or JID (list_chats shows them)", to)
-	default:
-		return types.JID{}, fmt.Errorf("%d chats are named %q; use the JID instead", len(matches), to)
-	}
+	return types.ParseJID(jid)
 }
 
 var mentionToken = regexp.MustCompile(`@\+?(\d{7,15})\b`)

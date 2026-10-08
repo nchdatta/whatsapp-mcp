@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/skip2/go-qrcode"
@@ -24,14 +25,14 @@ type (
 	}
 
 	readChatArgs struct {
-		Chat   string `json:"chat" jsonschema:"Chat JID, phone number, or exact chat title"`
+		Chat   string `json:"chat" jsonschema:"Chat JID, phone number, or contact or chat name"`
 		Limit  int    `json:"limit,omitempty" jsonschema:"Number of most recent messages (default 40, max 300)"`
 		Before string `json:"before,omitempty" jsonschema:"Only messages before this date/time, to page back through history"`
 	}
 
 	searchArgs struct {
 		Text      string `json:"text,omitempty" jsonschema:"Text the message must contain"`
-		Chat      string `json:"chat,omitempty" jsonschema:"Limit to one chat (JID, phone number or exact title)"`
+		Chat      string `json:"chat,omitempty" jsonschema:"Limit to one chat (JID, phone number, or contact or chat name)"`
 		Sender    string `json:"sender,omitempty" jsonschema:"Limit to a sender (JID or phone number digits)"`
 		After     string `json:"after,omitempty" jsonschema:"Only messages after this date/time"`
 		Before    string `json:"before,omitempty" jsonschema:"Only messages before this date/time"`
@@ -51,12 +52,12 @@ type (
 	}
 
 	sendTextArgs struct {
-		To   string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or exact chat title"`
+		To   string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or contact or chat name"`
 		Text string `json:"text" jsonschema:"Message text. Write @<phone number>, or the [tag: @...] value from wait_for_messages, to mention someone in a group"`
 	}
 
 	sendFileArgs struct {
-		To        string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or exact chat title"`
+		To        string `json:"to" jsonschema:"Recipient: phone number with country code, JID, or contact or chat name"`
 		Path      string `json:"path" jsonschema:"Absolute path of the local file to send"`
 		Caption   string `json:"caption,omitempty" jsonschema:"Caption for images, videos and documents"`
 		VoiceNote bool   `json:"voice_note,omitempty" jsonschema:"Send audio as a voice note (converted with ffmpeg if not already Ogg Opus)"`
@@ -76,19 +77,25 @@ type (
 	}
 )
 
+var no = false
+
+// Read tools are marked read-only so Claude Desktop can let the user allow
+// them once; sending and unlinking still ask.
+var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true}
+
 func (t *tools) register(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{Name: "whatsapp_status", Description: "Show whether a WhatsApp account is linked and connected."}, t.status)
-	mcp.AddTool(s, &mcp.Tool{Name: "link_whatsapp", Description: "Link a WhatsApp account when none is linked. Returns a QR code image to scan in WhatsApp (Linked devices > Link a device), or a pairing code when phone is given. Codes expire in about 20 seconds; call again for a fresh one, then whatsapp_status to confirm."}, t.link)
+	mcp.AddTool(s, &mcp.Tool{Name: "whatsapp_status", Description: "Show whether a WhatsApp account is linked and connected.", Annotations: readOnly}, t.status)
+	mcp.AddTool(s, &mcp.Tool{Name: "link_whatsapp", Description: "Link a WhatsApp account when none is linked. Returns a QR code image to scan in WhatsApp (Linked devices > Link a device), or a pairing code when phone is given. Codes expire in about 20 seconds; call again for a fresh one, then whatsapp_status to confirm.", Annotations: &mcp.ToolAnnotations{DestructiveHint: &no}}, t.link)
 	mcp.AddTool(s, &mcp.Tool{Name: "unlink_whatsapp", Description: "Unlink the WhatsApp account from this computer (removes it from Linked devices on the phone). Local message history is kept. Ask the user to confirm first."}, t.unlink)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with a preview of the last message."}, t.listChats)
-	mcp.AddTool(s, &mcp.Tool{Name: "read_chat", Description: "Read the latest messages of one chat, oldest first."}, t.readChat)
-	mcp.AddTool(s, &mcp.Tool{Name: "search_messages", Description: "Search messages across all chats by text, chat, sender, date range or attachments. Newest first."}, t.search)
-	mcp.AddTool(s, &mcp.Tool{Name: "message_context", Description: "Show the conversation around a specific message."}, t.messageContext)
-	mcp.AddTool(s, &mcp.Tool{Name: "find_contacts", Description: "Find people by name or phone number in the address book and chat history."}, t.findContacts)
-	mcp.AddTool(s, &mcp.Tool{Name: "wait_for_messages", Description: "Wait for new incoming messages (checks every 3 seconds) and return them with their chat JIDs. Returns a cursor; call again with it to keep watching."}, t.waitForMessages)
+	mcp.AddTool(s, &mcp.Tool{Name: "list_chats", Description: "List chats, most recently active first, with a preview of the last message.", Annotations: readOnly}, t.listChats)
+	mcp.AddTool(s, &mcp.Tool{Name: "read_chat", Description: "Read the latest messages of one chat, oldest first.", Annotations: readOnly}, t.readChat)
+	mcp.AddTool(s, &mcp.Tool{Name: "search_messages", Description: "Search messages across all chats by text, chat, sender, date range or attachments. Newest first.", Annotations: readOnly}, t.search)
+	mcp.AddTool(s, &mcp.Tool{Name: "message_context", Description: "Show the conversation around a specific message.", Annotations: readOnly}, t.messageContext)
+	mcp.AddTool(s, &mcp.Tool{Name: "find_contacts", Description: "Find people by name or phone number in the address book and chat history.", Annotations: readOnly}, t.findContacts)
+	mcp.AddTool(s, &mcp.Tool{Name: "wait_for_messages", Description: "Wait for new incoming messages (checks every 3 seconds) and return them with their chat JIDs. Returns a cursor; call again with it to keep watching.", Annotations: readOnly}, t.waitForMessages)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_text", Description: "Send a text message as the user. Needs the user's permission."}, t.sendText)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_file", Description: "Send a local file: image, video, audio, voice note or any document. Confirm with the user first."}, t.sendFile)
-	mcp.AddTool(s, &mcp.Tool{Name: "get_attachment", Description: "Download a message's attachment and return the path of a readable copy (attachments are stored encrypted). Images are also returned for you to view."}, t.attachment)
+	mcp.AddTool(s, &mcp.Tool{Name: "get_attachment", Description: "Download a message's attachment and return the path of a readable copy (attachments are stored encrypted). Images are also returned for you to view.", Annotations: readOnly}, t.attachment)
 }
 
 func (t *tools) status(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
@@ -100,7 +107,37 @@ func (t *tools) listChats(ctx context.Context, _ *mcp.CallToolRequest, a listCha
 	if err != nil {
 		return fail(err)
 	}
-	return asJSON(chats)
+	if len(chats) == 0 {
+		return ok("No chats.")
+	}
+	var b strings.Builder
+	for _, c := range chats {
+		title := c.Title
+		if title == "" {
+			title = c.JID
+		}
+		fmt.Fprintf(&b, "%s [%s]", title, c.JID)
+		if c.IsGroup {
+			b.WriteString(" group")
+		}
+		if !c.LastActivity.IsZero() {
+			b.WriteString(" · " + c.LastActivity.Local().Format("2006-01-02 15:04"))
+		}
+		if c.Preview != "" {
+			fmt.Fprintf(&b, " · %q", oneLine(c.Preview, 80))
+		}
+		b.WriteString("\n")
+	}
+	return ok(b.String())
+}
+
+// oneLine flattens s and cuts it to n runes.
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 func (t *tools) readChat(ctx context.Context, _ *mcp.CallToolRequest, a readChatArgs) (*mcp.CallToolResult, any, error) {
@@ -161,7 +198,22 @@ func (t *tools) findContacts(ctx context.Context, _ *mcp.CallToolRequest, a find
 	if err != nil {
 		return fail(err)
 	}
-	return asJSON(contacts)
+	if len(contacts) == 0 {
+		return ok("No contacts found.")
+	}
+	var b strings.Builder
+	for _, c := range contacts {
+		name := c.Name
+		if name == "" {
+			name = "(no name)"
+		}
+		b.WriteString(name)
+		if c.Phone != "" {
+			b.WriteString(" " + c.Phone)
+		}
+		fmt.Fprintf(&b, " [%s]\n", c.JID)
+	}
+	return ok(b.String())
 }
 
 func (t *tools) sendText(ctx context.Context, _ *mcp.CallToolRequest, a sendTextArgs) (*mcp.CallToolResult, any, error) {

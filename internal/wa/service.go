@@ -106,7 +106,7 @@ func (s *Service) Close() {
 func (s *Service) DataDir() string { return s.dataDir }
 
 // LoggedIn reports whether a WhatsApp account is linked.
-func (s *Service) LoggedIn() bool { return s.Client.Store.ID != nil }
+func (s *Service) LoggedIn() bool { return s.Client != nil && s.Client.Store.ID != nil }
 
 var ErrNotLoggedIn = errors.New("no WhatsApp account is linked yet: call the link_whatsapp tool (or run `whatsapp-mcp login` in a terminal)")
 

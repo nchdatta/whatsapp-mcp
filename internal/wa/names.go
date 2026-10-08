@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -129,7 +130,7 @@ func (s *Service) DisplayName(ctx context.Context, jidStr, storedName string) st
 	return label
 }
 
-// ResolveChat maps a chat reference (JID, phone number or exact chat title)
+// ResolveChat maps a chat reference (JID, phone number, or contact or chat name)
 // to a JID using only local data, for read operations that must work offline.
 func (s *Service) ResolveChat(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
@@ -153,27 +154,77 @@ func (s *Service) ResolveChat(ctx context.Context, ref string) (string, error) {
 		}
 		return "", fmt.Errorf("no chat with +%s in the local history", digits)
 	}
-	chats, err := s.History.Chats(ctx, ref, nil, 20, 0)
+	return s.chatByName(ctx, ref)
+}
+
+// chatByName finds the one chat or contact a name refers to: an exact chat
+// title first, then partial chat titles and address book names.
+func (s *Service) chatByName(ctx context.Context, name string) (string, error) {
+	chats, err := s.History.Chats(ctx, name, nil, 20, 0)
 	if err != nil {
 		return "", err
 	}
-	var found []string
+	var exact []string
 	for _, c := range chats {
-		if strings.EqualFold(c.Title, ref) {
-			found = append(found, c.JID)
+		if strings.EqualFold(c.Title, name) {
+			exact = append(exact, c.JID)
 		}
 	}
-	switch len(found) {
+	switch len(exact) {
 	case 1:
-		return found[0], nil
+		return exact[0], nil
 	case 0:
-		if len(chats) == 1 {
-			return chats[0].JID, nil
-		}
-		return "", fmt.Errorf("no chat named %q (list_chats shows available chats)", ref)
 	default:
-		return "", fmt.Errorf("%d chats are named %q; pass the JID instead", len(found), ref)
+		return "", fmt.Errorf("%d chats are named %q; pass the JID instead (list_chats shows them)", len(exact), name)
 	}
+
+	var jids, labels []string
+	add := func(jid, label string) {
+		if slices.Contains(jids, jid) {
+			return
+		}
+		jids = append(jids, jid)
+		labels = append(labels, fmt.Sprintf("%s [%s]", label, jid))
+	}
+	for _, c := range chats {
+		add(c.JID, c.Title)
+	}
+	contacts, err := s.FindContacts(ctx, name, 20)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range contacts {
+		add(s.knownChat(ctx, c.JID), c.Name)
+	}
+	switch len(jids) {
+	case 1:
+		return jids[0], nil
+	case 0:
+		return "", fmt.Errorf("no chat or contact named %q; use a phone number or JID (list_chats and find_contacts show them)", name)
+	default:
+		if len(labels) > 10 {
+			labels = append(labels[:10], "...")
+		}
+		return "", fmt.Errorf("%q matches several chats; ask the user which one and pass its JID: %s", name, strings.Join(labels, "; "))
+	}
+}
+
+// knownChat maps a contact's phone number JID to the LID chat the history
+// keeps it under, when that's where the conversation is.
+func (s *Service) knownChat(ctx context.Context, jid string) string {
+	if _, err := s.History.Chat(ctx, jid); err == nil || !s.LoggedIn() {
+		return jid
+	}
+	pn, err := types.ParseJID(jid)
+	if err != nil || pn.Server != types.DefaultUserServer {
+		return jid
+	}
+	if lid, err := s.Client.Store.LIDs.GetLIDForPN(ctx, pn); err == nil && !lid.IsEmpty() {
+		if _, err := s.History.Chat(ctx, lid.String()); err == nil {
+			return lid.String()
+		}
+	}
+	return jid
 }
 
 // Contact is a person known to the session or the local history.
