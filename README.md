@@ -10,6 +10,8 @@ It's one self-contained binary. Your messages stay on your computer, encrypted, 
 >
 > **Prompt injection:** anything in your chats is text the model reads. A malicious message could try to make the model leak data or send messages. Keep tool approval on for sending.
 
+> **New here?** The [step-by-step guide](docs/guide.md) covers setup, claude.ai and other MCP apps, what to ask, and permissions, with diagrams.
+
 ## Quick start
 
 **1. Install**
