@@ -75,7 +75,7 @@ func Open(ctx context.Context, dataDir string, log zerolog.Logger) (*Service, er
 	}
 
 	s := &Service{
-		Client:    whatsmeow.NewClient(device, waLog.Zerolog(log.With().Str("module", "whatsapp").Logger())),
+		Client:    whatsmeow.NewClient(device, quietLog{waLog.Zerolog(log.With().Str("module", "whatsapp").Logger())}),
 		History:   history,
 		Keys:      keys,
 		dataDir:   dataDir,
