@@ -1,16 +1,39 @@
-# whatsapp-mcp
+# WhatsApp MCP Server for Claude Desktop, Claude Code, and other MCP clients
 
 [![CI](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nchdatta/whatsapp-mcp/actions/workflows/ci.yml)
 
-Use your WhatsApp from **Claude Desktop**. Read and search your chats, look at photos people send you, and send messages, files and voice notes. It works with any other [MCP](https://modelcontextprotocol.io) client too.
+WhatsApp MCP is a local **WhatsApp MCP server** for **Claude Desktop WhatsApp** and **Claude Code WhatsApp** workflows, plus any other [WhatsApp Model Context Protocol](https://modelcontextprotocol.io) client.
 
-It's one self-contained binary. Your messages stay on your computer, encrypted, and only reach Claude when it calls a tool.
+Use it as a local **WhatsApp AI assistant** to read and search chats, inspect photos and attachments, and send messages, files, and voice notes with your approval. It's one self-contained binary, and your messages stay on your computer encrypted.
+
+**Quick start:** Go to [Quick start](#quick-start), or follow the [step-by-step guide](docs/guide.md) for Claude Desktop, claude.ai, and other MCP apps.
+
+**Supported platforms:** Windows, macOS, and Linux (amd64 and arm64).
 
 > **Use at your own risk.** This links as a WhatsApp Web device through the unofficial [whatsmeow](https://github.com/tulir/whatsmeow) library. Automated or bulk messaging can get an account banned.
 >
 > **Prompt injection:** anything in your chats is text the model reads. A malicious message could try to make the model leak data or send messages. Keep tool approval on for sending.
 
 > **New here?** The [step-by-step guide](docs/guide.md) covers setup, claude.ai and other MCP apps, what to ask, and permissions, with diagrams.
+
+## Why use WhatsApp MCP?
+
+- Local operation: run a single binary on your own computer
+- Works with Claude Desktop, Claude Code, claude.ai, Claude mobile apps, and other MCP clients
+- Search and read chats, including message context
+- Open photos and download attachments
+- Send WhatsApp messages, files, and voice notes
+- Keep chats, attachments, and session data in encrypted local storage
+- Supports Windows, macOS, and Linux
+
+## Use cases
+
+Use whatsapp-mcp if you're looking for:
+
+- WhatsApp integration for Claude Desktop
+- a local WhatsApp AI assistant
+- a Model Context Protocol server for WhatsApp
+- a WhatsApp MCP server for Claude Code and other MCP clients
 
 ## Quick start
 
